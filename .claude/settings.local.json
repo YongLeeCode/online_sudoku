@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter run:*)",
+      "Bash(flutter doctor:*)",
+      "Bash(flutter devices:*)",
+      "Bash(flutter pub:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(flutter test:*)",
+      "Bash(pkill -f \"flutter_tools.snapshot run\")",
+      "Bash(flutter build:*)",
+      "Bash(open:*)"
+    ]
+  }
+}
