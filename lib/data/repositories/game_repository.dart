@@ -27,7 +27,6 @@ class GameRepository {
         .insert({
           'room_id': roomId,
           'puzzle_seed': seed,
-          'answer_grid': puzzleData.solution,
           'status': 'playing',
         })
         .select()
@@ -90,31 +89,16 @@ class GameRepository {
         .eq('player_id', playerId);
   }
 
-  /// 클리어 처리
-  Future<void> playerCleared({
+  /// 클리어 처리 — DB에서 원자적으로 순위 결정 후 반환
+  Future<int> playerCleared({
     required String gameId,
     required String playerId,
-    required int rank,
   }) async {
-    final now = DateTime.now().toUtc().toIso8601String();
-
-    // player_game_states 업데이트
-    await _client
-        .from(SupabaseConstants.playerGameStatesTable)
-        .update({
-          'rank': rank,
-          'finished_at': now,
-        })
-        .eq('game_id', gameId)
-        .eq('player_id', playerId);
-
-    // 1등이면 games 테이블에 first_clear_at 기록
-    if (rank == 1) {
-      await _client
-          .from(SupabaseConstants.gamesTable)
-          .update({'first_clear_at': now})
-          .eq('id', gameId);
-    }
+    final result = await _client.rpc('assign_player_rank', params: {
+      'p_game_id': gameId,
+      'p_player_id': playerId,
+    });
+    return (result as num).toInt();
   }
 
   /// 게임 종료 처리

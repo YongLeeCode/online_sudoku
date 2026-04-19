@@ -337,10 +337,7 @@ class _MultiplayerGameScreenState
     await repo.updateProgress(gameId: gameId, playerId: playerId, progress: progress);
 
     if (isCompleted) {
-      final states = await repo.getPlayerGameStates(gameId);
-      final clearedCount = states.where((s) => s['rank'] != null).length;
-      final rank = clearedCount + 1;
-      await repo.playerCleared(gameId: gameId, playerId: playerId, rank: rank);
+      final rank = await repo.playerCleared(gameId: gameId, playerId: playerId);
       if (rank == 1) {
         ref.read(firstClearProvider.notifier).state = true;
       }

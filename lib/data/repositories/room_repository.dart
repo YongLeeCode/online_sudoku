@@ -86,55 +86,27 @@ class RoomRepository {
     return (room: updatedRoom, player: player);
   }
 
-  /// 방 코드로 입장
+  /// 방 코드로 입장 — DB 함수로 원자적 처리 (레이스 방지)
   Future<({RoomModel room, PlayerModel player})> joinRoom({
     required String code,
     required String nickname,
   }) async {
-    // 방 찾기
-    final roomData = await _client
-        .from(SupabaseConstants.roomsTable)
-        .select()
-        .eq('code', code.toUpperCase())
-        .maybeSingle();
+    try {
+      final result = await _client.rpc('join_room', params: {
+        'p_code': code.toUpperCase(),
+        'p_nickname': nickname,
+      });
 
-    if (roomData == null) {
-      throw const RoomNotFoundException();
+      final data = result as Map<String, dynamic>;
+      final room = RoomModel.fromJson(data['room'] as Map<String, dynamic>);
+      final player = PlayerModel.fromJson(data['player'] as Map<String, dynamic>);
+      return (room: room, player: player);
+    } on PostgrestException catch (e) {
+      if (e.message.contains('ROOM_NOT_FOUND')) throw const RoomNotFoundException();
+      if (e.message.contains('GAME_ALREADY_STARTED')) throw const GameAlreadyStartedException();
+      if (e.message.contains('ROOM_FULL')) throw const RoomFullException();
+      rethrow;
     }
-
-    final room = RoomModel.fromJson(roomData);
-
-    if (room.status != 'waiting') {
-      throw const GameAlreadyStartedException();
-    }
-
-    // 현재 인원 확인
-    final players = await _client
-        .from(SupabaseConstants.playersTable)
-        .select()
-        .eq('room_id', room.id)
-        .eq('is_connected', true);
-
-    if ((players as List).length >= room.maxPlayers) {
-      throw const RoomFullException();
-    }
-
-    // 플레이어 생성
-    final playerData = await _client
-        .from(SupabaseConstants.playersTable)
-        .insert({
-          'room_id': room.id,
-          'nickname': nickname,
-          'is_host': false,
-          'is_ready': false,
-          'is_connected': true,
-        })
-        .select()
-        .single();
-
-    final player = PlayerModel.fromJson(playerData);
-
-    return (room: room, player: player);
   }
 
   /// 방 정보 조회
