@@ -26,8 +26,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
 
     final room = ref.read(currentRoomProvider);
     final player = ref.read(currentPlayerProvider);
-    final settings = ref.read(roomSettingsProvider);
-    if (room == null || player == null || settings == null) return;
+    if (room == null || player == null) return;
 
     // 게임 데이터 조회
     final gameRepo = ref.read(gameRepositoryProvider);
@@ -37,6 +36,13 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
     final gameId = gameData['id'] as String;
     final seed = gameData['puzzle_seed'] as int;
 
+    // 항상 DB에서 최신 설정을 직접 fetch (로컬 캐시 무시)
+    final settings =
+        await ref.read(roomRepositoryProvider).getRoomSettings(room.id);
+
+    // 로컬 설정 상태도 최신으로 갱신
+    ref.read(roomSettingsProvider.notifier).state = settings;
+
     // 프로바이더 설정
     ref.read(currentGameIdProvider.notifier).state = gameId;
     ref.read(currentGameSeedProvider.notifier).state = seed;
@@ -44,7 +50,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
     ref.read(overtimeRemainingProvider.notifier).state = 60;
     ref.read(selectedCellProvider.notifier).state = null;
 
-    // 동일 seed로 게임 시작
+    // 동일 seed, 최신 설정으로 게임 시작
     ref.read(gameProvider.notifier).startGameWithSeed(
           seed,
           settings.difficulty,
@@ -79,6 +85,13 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
         if (roomData.status == 'playing') {
           _navigateToGame();
         }
+      });
+    });
+
+    // 설정 변경 실시간 동기화 (참여자: DB → 로컬 반영)
+    ref.listen(roomSettingsStreamProvider, (prev, next) {
+      next.whenData((freshSettings) {
+        ref.read(roomSettingsProvider.notifier).state = freshSettings;
       });
     });
 

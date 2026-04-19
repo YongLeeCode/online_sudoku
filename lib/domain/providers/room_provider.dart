@@ -143,6 +143,50 @@ final roomStreamProvider = StreamProvider.autoDispose<RoomModel>((ref) {
   return controller.stream;
 });
 
+// 방 설정 실시간 스트림 (폴링 + Realtime)
+final roomSettingsStreamProvider =
+    StreamProvider.autoDispose<RoomSettingsModel>((ref) {
+  final room = ref.watch(currentRoomProvider);
+  if (room == null) return const Stream.empty();
+  final repo = ref.read(roomRepositoryProvider);
+
+  final controller = StreamController<RoomSettingsModel>();
+
+  Future<void> fetchSettings() async {
+    try {
+      final s = await repo.getRoomSettings(room.id);
+      if (s != null && !controller.isClosed) controller.add(s);
+    } catch (_) {}
+  }
+
+  fetchSettings();
+  final timer = Timer.periodic(const Duration(seconds: 2), (_) => fetchSettings());
+
+  final client = ref.read(supabaseProvider);
+  final channel = client.channel('lobby-settings-${room.id}');
+  channel
+      .onPostgresChanges(
+        event: PostgresChangeEvent.update,
+        schema: 'public',
+        table: 'room_settings',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'room_id',
+          value: room.id,
+        ),
+        callback: (_) => fetchSettings(),
+      )
+      .subscribe();
+
+  ref.onDispose(() {
+    timer.cancel();
+    channel.unsubscribe();
+    controller.close();
+  });
+
+  return controller.stream;
+});
+
 // 모든 참여자 준비 완료 여부 (방장 제외)
 final allReadyProvider = Provider<bool>((ref) {
   final playersAsync = ref.watch(playersStreamProvider);
