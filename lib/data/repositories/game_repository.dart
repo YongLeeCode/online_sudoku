@@ -128,6 +128,48 @@ class GameRepository {
         .eq('id', gameId);
   }
 
+  /// 게임/방 관련 모든 데이터 삭제 (FK 의존 순서 준수)
+  Future<void> cleanupGame({
+    required String gameId,
+    required String roomId,
+  }) async {
+    // 1. game_events (game_id FK)
+    await _client
+        .from(SupabaseConstants.gameEventsTable)
+        .delete()
+        .eq('game_id', gameId);
+
+    // 2. player_game_states (game_id FK)
+    await _client
+        .from(SupabaseConstants.playerGameStatesTable)
+        .delete()
+        .eq('game_id', gameId);
+
+    // 3. games (room_id FK)
+    await _client
+        .from(SupabaseConstants.gamesTable)
+        .delete()
+        .eq('id', gameId);
+
+    // 4. players (room_id FK)
+    await _client
+        .from(SupabaseConstants.playersTable)
+        .delete()
+        .eq('room_id', roomId);
+
+    // 5. room_settings (room_id FK)
+    await _client
+        .from(SupabaseConstants.roomSettingsTable)
+        .delete()
+        .eq('room_id', roomId);
+
+    // 6. rooms
+    await _client
+        .from(SupabaseConstants.roomsTable)
+        .delete()
+        .eq('id', roomId);
+  }
+
   /// 모든 플레이어 게임 상태 조회
   Future<List<Map<String, dynamic>>> getPlayerGameStates(String gameId) async {
     final data = await _client

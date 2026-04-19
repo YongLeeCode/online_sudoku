@@ -350,7 +350,11 @@ class _MultiplayerGameScreenState
   Future<void> _leaveGame() async {
     final playerId = ref.read(currentPlayerProvider)?.id;
     if (playerId != null) {
-      await ref.read(lobbyActionsProvider).leaveRoom(playerId);
+      try {
+        await ref.read(lobbyActionsProvider).leaveRoom(playerId);
+      } catch (_) {
+        // 이미 삭제된 경우 무시
+      }
     }
     ref.read(currentRoomProvider.notifier).state = null;
     ref.read(currentPlayerProvider.notifier).state = null;
@@ -365,11 +369,13 @@ class _MultiplayerGameScreenState
     _gameEnded = true;
 
     final gameId = ref.read(currentGameIdProvider);
+    final roomId = ref.read(currentRoomProvider)?.id;
     if (gameId == null) return;
 
     final repo = ref.read(gameRepositoryProvider);
     await repo.finishGame(gameId);
 
+    // 결과 fetch (삭제 전에)
     final states = await repo.getPlayerGameStates(gameId);
     final myPlayerId = ref.read(currentPlayerProvider)?.id;
 
@@ -387,6 +393,22 @@ class _MultiplayerGameScreenState
         isMe: s['player_id'] == myPlayerId,
       );
     }).toList();
+
+    // DB 전체 삭제 (결과는 이미 메모리에 있음)
+    if (roomId != null) {
+      try {
+        await repo.cleanupGame(gameId: gameId, roomId: roomId);
+      } catch (_) {
+        // 삭제 실패 시 결과 표시는 계속 진행
+      }
+    }
+
+    // 로컬 상태 초기화
+    ref.read(currentGameIdProvider.notifier).state = null;
+    ref.read(currentRoomProvider.notifier).state = null;
+    ref.read(currentPlayerProvider.notifier).state = null;
+    ref.read(firstClearProvider.notifier).state = false;
+    ref.read(overtimeRemainingProvider.notifier).state = 60;
 
     if (mounted) {
       Navigator.of(context).pushReplacement(
