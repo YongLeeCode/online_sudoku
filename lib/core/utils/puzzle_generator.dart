@@ -1,8 +1,13 @@
 import 'dart:math';
 
+import '../constants/difficulty.dart';
+
 class PuzzleGenerator {
   /// seed 기반으로 동일한 퍼즐을 생성
-  static PuzzleData generate({required int seed, required int difficulty}) {
+  static PuzzleData generate({
+    required int seed,
+    required Difficulty difficulty,
+  }) {
     final random = Random(seed);
     final solution = List.generate(9, (_) => List.filled(9, 0));
 
@@ -15,7 +20,7 @@ class PuzzleGenerator {
     _solveSudoku(solution);
 
     // 3) 난이도에 따라 칸을 제거
-    final blanks = _blanksForDifficulty(difficulty);
+    final blanks = difficulty.blanks;
     final puzzle = solution.map((row) => List<int>.from(row)).toList();
     _removeCells(puzzle, blanks, random);
 
@@ -24,11 +29,6 @@ class PuzzleGenerator {
       solution: solution,
       totalBlanks: blanks,
     );
-  }
-
-  static int _blanksForDifficulty(int difficulty) {
-    // 난이도 1~10 → 빈 칸 30~55개
-    return 27 + (difficulty * 2.8).round();
   }
 
   static void _fillBox(List<List<int>> grid, int rowStart, int colStart, Random random) {

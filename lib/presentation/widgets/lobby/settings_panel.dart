@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 
 import '../../../data/models/room_settings_model.dart';
+import '../difficulty_selector.dart';
 
 class SettingsPanel extends StatelessWidget {
   final RoomSettingsModel settings;
@@ -29,22 +30,19 @@ class SettingsPanel extends StatelessWidget {
             _SettingRow(
               icon: Icons.trending_up,
               label: '난이도',
-              value: '${settings.difficulty}',
-              color: _difficultyColor(settings.difficulty),
+              value: settings.difficulty.labelKo,
+              color: settings.difficulty.color,
               child: isHost
                   ? SizedBox(
-                      width: 180,
-                      child: Slider(
-                        value: settings.difficulty.toDouble(),
-                        min: 1,
-                        max: 10,
-                        divisions: 9,
-                        onChanged: (v) {
+                      width: double.infinity,
+                      child: DifficultySelector(
+                        value: settings.difficulty,
+                        onChanged: (d) {
                           onSettingsChanged?.call(RoomSettingsModel(
                             roomId: settings.roomId,
-                            difficulty: v.round(),
+                            difficulty: d,
                             penaltySeconds: settings.penaltySeconds,
-                            itemInterval: settings.itemInterval,
+                            maxItemCount: settings.maxItemCount,
                             allowedItems: settings.allowedItems,
                             hintCounts: settings.hintCounts,
                           ));
@@ -74,7 +72,7 @@ class SettingsPanel extends StatelessWidget {
                             roomId: settings.roomId,
                             difficulty: settings.difficulty,
                             penaltySeconds: v.round(),
-                            itemInterval: settings.itemInterval,
+                            maxItemCount: settings.maxItemCount,
                             allowedItems: settings.allowedItems,
                             hintCounts: settings.hintCounts,
                           ));
@@ -85,26 +83,26 @@ class SettingsPanel extends StatelessWidget {
             ),
             const Divider(height: 24),
 
-            // 아이템 지급 간격
+            // 아이템 개수
             _SettingRow(
               icon: Icons.card_giftcard,
-              label: '아이템 지급',
-              value: '${settings.itemInterval}칸마다',
+              label: '아이템 개수',
+              value: settings.maxItemCount == 0 ? '없음' : '${settings.maxItemCount}개',
               color: colorScheme.tertiary,
               child: isHost
                   ? SizedBox(
                       width: 180,
                       child: Slider(
-                        value: settings.itemInterval.toDouble(),
-                        min: 5,
-                        max: 20,
+                        value: settings.maxItemCount.toDouble(),
+                        min: 0,
+                        max: 15,
                         divisions: 15,
                         onChanged: (v) {
                           onSettingsChanged?.call(RoomSettingsModel(
                             roomId: settings.roomId,
                             difficulty: settings.difficulty,
                             penaltySeconds: settings.penaltySeconds,
-                            itemInterval: v.round(),
+                            maxItemCount: v.round(),
                             allowedItems: settings.allowedItems,
                             hintCounts: settings.hintCounts,
                           ));
@@ -119,12 +117,6 @@ class SettingsPanel extends StatelessWidget {
     );
   }
 
-  Color _difficultyColor(int d) {
-    if (d <= 3) return Colors.green;
-    if (d <= 6) return Colors.orange;
-    if (d <= 9) return Colors.red;
-    return Colors.purple;
-  }
 }
 
 class _SettingRow extends StatelessWidget {

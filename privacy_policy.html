@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy – Online Sudoku</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f9f9f9;
+      color: #222;
+      line-height: 1.7;
+    }
+    .container {
+      max-width: 780px;
+      margin: 40px auto;
+      background: #fff;
+      padding: 48px 40px;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    }
+    h1 { font-size: 1.8rem; margin-bottom: 6px; }
+    .subtitle { color: #666; font-size: 0.95rem; margin-bottom: 36px; }
+    h2 { font-size: 1.15rem; margin: 32px 0 10px; color: #1a1a1a; }
+    p, li { font-size: 0.97rem; color: #444; margin-bottom: 8px; }
+    ul { padding-left: 20px; }
+    .lang-toggle {
+      display: flex; gap: 8px; margin-bottom: 32px;
+    }
+    .lang-toggle button {
+      padding: 6px 16px; border-radius: 20px; border: 1px solid #ccc;
+      cursor: pointer; background: #fff; font-size: 0.9rem;
+    }
+    .lang-toggle button.active {
+      background: #4f46e5; color: #fff; border-color: #4f46e5;
+    }
+    .section-ko, .section-en { display: none; }
+    .section-ko.visible, .section-en.visible { display: block; }
+    a { color: #4f46e5; }
+    .note {
+      background: #f0f0ff; border-left: 4px solid #4f46e5;
+      padding: 12px 16px; border-radius: 4px; margin: 16px 0;
+      font-size: 0.93rem; color: #333;
+    }
+    footer { margin-top: 40px; font-size: 0.85rem; color: #aaa; text-align: center; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Privacy Policy</h1>
+  <p class="subtitle">Online Sudoku · Last updated: June 1, 2025</p>
+
+  <div class="lang-toggle">
+    <button class="active" onclick="setLang('ko')">한국어</button>
+    <button onclick="setLang('en')">English</button>
+  </div>
+
+  <!-- ===== 한국어 ===== -->
+  <div class="section-ko visible">
+
+    <h2>1. 개요</h2>
+    <p>
+      Online Sudoku(이하 "앱")는 개인정보 보호를 중요하게 생각합니다.
+      본 개인정보처리방침은 앱이 수집하는 정보, 사용 방식, 보호 방법을 설명합니다.
+    </p>
+
+    <h2>2. 수집하는 정보</h2>
+    <p>본 앱은 <strong>계정 가입이나 로그인을 요구하지 않습니다.</strong></p>
+    <ul>
+      <li><strong>익명 세션 ID</strong> — 멀티플레이어 방 참여를 위해 임시로 생성되는 식별자입니다. 이름, 이메일, 전화번호 등 개인 식별 정보는 포함되지 않습니다.</li>
+      <li><strong>게임 데이터</strong> — 스도쿠 숫자 입력, 방 설정, 게임 진행 상태 등 게임 진행에 필요한 데이터가 Supabase 서버에 임시 저장됩니다.</li>
+      <li><strong>기술 로그</strong> — Supabase 서버는 서비스 운영을 위해 IP 주소를 포함한 표준 서버 로그를 자동으로 기록할 수 있습니다.</li>
+    </ul>
+
+    <div class="note">
+      ❌ 이름, 이메일, 전화번호, 위치 정보, 사진 등 개인 식별 정보는 수집하지 않습니다.
+    </div>
+
+    <h2>3. 정보 사용 목적</h2>
+    <ul>
+      <li>멀티플레이어 게임 기능 제공 (방 생성, 참여, 실시간 게임 진행)</li>
+      <li>서비스 안정성 유지 및 오류 대응</li>
+    </ul>
+
+    <h2>4. 광고</h2>
+    <p>
+      현재 앱에는 광고가 포함되어 있지 않습니다.
+      향후 광고가 추가될 경우, 본 방침을 업데이트하고 사용자에게 고지합니다.
+      어린이 사용자에게는 관심 기반(행동 타겟) 광고를 제공하지 않습니다.
+    </p>
+
+    <h2>5. 제3자 서비스</h2>
+    <p>본 앱은 멀티플레이어 기능을 위해 <strong>Supabase</strong>를 사용합니다.</p>
+    <ul>
+      <li>Supabase 개인정보처리방침: <a href="https://supabase.com/privacy" target="_blank">supabase.com/privacy</a></li>
+    </ul>
+
+    <h2>6. 아동 개인정보 보호 (COPPA)</h2>
+    <p>
+      본 앱은 13세 미만 아동을 포함한 모든 연령의 사용자가 이용할 수 있습니다.
+      앱은 아동으로부터 이름, 이메일 등 개인 식별 정보를 의도적으로 수집하지 않습니다.
+    </p>
+    <p>
+      보호자께서 자녀가 개인정보를 제공했다고 판단되시면 아래 이메일로 연락해 주시기 바랍니다.
+      확인 즉시 해당 정보를 삭제하겠습니다.
+    </p>
+
+    <h2>7. 데이터 보관 및 삭제</h2>
+    <p>
+      게임 세션 데이터는 게임 종료 후 자동으로 삭제됩니다.
+      서버 로그는 운영 목적으로 단기간 보관 후 삭제됩니다.
+    </p>
+
+    <h2>8. 방침 변경</h2>
+    <p>
+      본 방침이 변경될 경우, 이 페이지를 통해 고지합니다.
+      정기적으로 이 페이지를 확인해 주시기 바랍니다.
+    </p>
+
+    <h2>9. 문의</h2>
+    <p>
+      개인정보 관련 문의사항은 아래 이메일로 연락해 주세요.<br/>
+      <a href="mailto:yong.lee.dev@gmail.com">yong.lee.dev@gmail.com</a>
+    </p>
+  </div>
+
+  <!-- ===== English ===== -->
+  <div class="section-en">
+
+    <h2>1. Overview</h2>
+    <p>
+      Online Sudoku ("the App") is committed to protecting your privacy.
+      This Privacy Policy explains what information we collect, how we use it, and how we protect it.
+    </p>
+
+    <h2>2. Information We Collect</h2>
+    <p>The App does <strong>not require account registration or login.</strong></p>
+    <ul>
+      <li><strong>Anonymous Session ID</strong> — A temporary identifier generated to join multiplayer rooms. It contains no name, email, phone number, or any personally identifiable information.</li>
+      <li><strong>Game Data</strong> — Sudoku inputs, room settings, and game state are temporarily stored on Supabase servers to enable gameplay.</li>
+      <li><strong>Technical Logs</strong> — Supabase servers may automatically record standard server logs, including IP addresses, for service operation purposes.</li>
+    </ul>
+
+    <div class="note">
+      ❌ We do not collect names, email addresses, phone numbers, location data, photos, or any personally identifiable information.
+    </div>
+
+    <h2>3. How We Use Information</h2>
+    <ul>
+      <li>To provide multiplayer game features (room creation, joining, real-time gameplay)</li>
+      <li>To maintain service stability and handle errors</li>
+    </ul>
+
+    <h2>4. Advertising</h2>
+    <p>
+      The App currently contains no advertisements.
+      If ads are added in the future, this policy will be updated and users will be notified.
+      We will not serve interest-based (behavioral) ads to child users.
+    </p>
+
+    <h2>5. Third-Party Services</h2>
+    <p>The App uses <strong>Supabase</strong> for multiplayer functionality.</p>
+    <ul>
+      <li>Supabase Privacy Policy: <a href="https://supabase.com/privacy" target="_blank">supabase.com/privacy</a></li>
+    </ul>
+
+    <h2>6. Children's Privacy (COPPA)</h2>
+    <p>
+      The App is available to users of all ages, including children under 13.
+      We do not knowingly collect personally identifiable information from children.
+    </p>
+    <p>
+      If a parent or guardian believes their child has provided personal information,
+      please contact us at the email below. We will promptly delete such information upon verification.
+    </p>
+
+    <h2>7. Data Retention & Deletion</h2>
+    <p>
+      Game session data is automatically deleted after the game ends.
+      Server logs are retained briefly for operational purposes and then deleted.
+    </p>
+
+    <h2>8. Changes to This Policy</h2>
+    <p>
+      If this policy changes, we will post the updated version on this page.
+      Please review this page periodically.
+    </p>
+
+    <h2>9. Contact Us</h2>
+    <p>
+      For privacy-related inquiries, please contact us at:<br/>
+      <a href="mailto:yong.lee.dev@gmail.com">yong.lee.dev@gmail.com</a>
+    </p>
+  </div>
+
+  <footer>© 2025 YongLee. All rights reserved.</footer>
+</div>
+
+<script>
+  function setLang(lang) {
+    document.querySelectorAll('.section-ko, .section-en').forEach(el => el.classList.remove('visible'));
+    document.querySelector('.section-' + lang).classList.add('visible');
+    document.querySelectorAll('.lang-toggle button').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+  }
+</script>
+</body>
+</html>

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -28,6 +27,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   void initState() {
     super.initState();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
       final game = ref.read(gameProvider);
       if (game != null && !game.isCompleted) {
         setState(() {
@@ -69,6 +69,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   void _startPenaltyCountdown() {
     _penaltyTimer?.cancel();
     _penaltyTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
       final game = ref.read(gameProvider);
       if (game == null || !game.isPenalized) {
         _penaltyTimer?.cancel();
@@ -81,6 +82,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   void _startBlindCountdown() {
     _blindTimer?.cancel();
     _blindTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
       final game = ref.read(gameProvider);
       if (game == null || !game.isBlinded) {
         _blindTimer?.cancel();
@@ -262,41 +264,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     );
   }
 
-  Widget _buildGrid(GameState game) {
-    if (!game.isBlinded) return const SudokuGrid();
-
-    return Stack(
-      children: [
-        const SudokuGrid(),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: Container(
-              color: Colors.white.withValues(alpha: 0.3),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('🌫️', style: TextStyle(fontSize: 36)),
-                    const Gap(8),
-                    Text(
-                      '블라인드 ${game.blindRemaining}초',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+  Widget _buildGrid(GameState game) => const SudokuGrid();
 
   void _showCompletionDialog(BuildContext context, GameState game) {
     final duration = game.completedDuration ?? Duration.zero;

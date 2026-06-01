@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/constants/difficulty.dart';
 import '../../core/constants/supabase_constants.dart';
 import '../../core/utils/puzzle_generator.dart';
 
@@ -13,7 +14,7 @@ class GameRepository {
   /// 게임 생성 (방장이 호출)
   Future<GameRecord> createGame({
     required String roomId,
-    required int difficulty,
+    required Difficulty difficulty,
     required List<String> playerIds,
     required Map<String, int> hintCounts,
     required int defaultHints,
@@ -168,7 +169,7 @@ class GameRepository {
 class GameRecord {
   final String gameId;
   final int seed;
-  final int difficulty;
+  final Difficulty difficulty;
   final PuzzleData puzzleData;
 
   const GameRecord({

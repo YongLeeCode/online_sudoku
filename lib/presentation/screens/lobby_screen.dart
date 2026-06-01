@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 
+import '../../core/constants/app_constants.dart';
+import '../../core/constants/difficulty.dart';
 import '../../domain/providers/game_provider.dart';
 import '../../domain/providers/multiplayer_provider.dart';
 import '../../domain/providers/room_provider.dart';
@@ -19,17 +21,20 @@ class LobbyScreen extends ConsumerStatefulWidget {
 
 class _LobbyScreenState extends ConsumerState<LobbyScreen> {
   bool _navigatingToGame = false;
+  bool _hostLeft = false;
 
   void _navigateToGame() async {
     if (_navigatingToGame) return;
     _navigatingToGame = true;
 
+    if (!mounted) return;
     final room = ref.read(currentRoomProvider);
     final player = ref.read(currentPlayerProvider);
     if (room == null || player == null) return;
 
     // 게임 데이터 조회
     final gameRepo = ref.read(gameRepositoryProvider);
+    final roomRepo = ref.read(roomRepositoryProvider);
     final gameData = await gameRepo.getActiveGame(room.id);
     if (gameData == null) return;
 
@@ -37,8 +42,9 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
     final seed = gameData['puzzle_seed'] as int;
 
     // 항상 DB에서 최신 설정을 직접 fetch (로컬 캐시 무시)
-    final settings =
-        await ref.read(roomRepositoryProvider).getRoomSettings(room.id);
+    final settings = await roomRepo.getRoomSettings(room.id);
+
+    if (!mounted) return;
 
     // 로컬 설정 상태도 최신으로 갱신
     ref.read(roomSettingsProvider.notifier).state = settings;
@@ -47,25 +53,25 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
     ref.read(currentGameIdProvider.notifier).state = gameId;
     ref.read(currentGameSeedProvider.notifier).state = seed;
     ref.read(firstClearProvider.notifier).state = false;
-    ref.read(overtimeRemainingProvider.notifier).state = 60;
+    ref.read(overtimeRemainingProvider.notifier).state = AppConstants.overtimeSeconds;
     ref.read(selectedCellProvider.notifier).state = null;
 
     // 동일 seed, 최신 설정으로 게임 시작
     ref.read(gameProvider.notifier).startGameWithSeed(
           seed,
-          settings.difficulty,
-          penaltySeconds: settings.penaltySeconds,
+          settings?.difficulty ?? Difficulty.normal,
+          penaltySeconds: settings?.penaltySeconds,
+          maxItemCount: settings?.maxItemCount,
         );
 
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MultiplayerGameScreen()),
-      );
-    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const MultiplayerGameScreen()),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(heartbeatProvider);
     final room = ref.watch(currentRoomProvider);
     final player = ref.watch(currentPlayerProvider);
     final playersAsync = ref.watch(playersStreamProvider);
@@ -79,11 +85,13 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
 
     final isHost = player.isHost;
 
-    // 방 상태가 playing으로 변경되면 게임 화면으로 이동
+    // 방 상태 변경 감지
     ref.listen(roomStreamProvider, (prev, next) {
       next.whenData((roomData) {
         if (roomData.status == 'playing') {
           _navigateToGame();
+        } else if (roomData.status == 'closed') {
+          _onHostLeft();
         }
       });
     });
@@ -241,11 +249,39 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
   }
 
   Future<void> _onLeave(BuildContext context, WidgetRef ref, String playerId) async {
+    final player = ref.read(currentPlayerProvider);
+    final room = ref.read(currentRoomProvider);
+
     await ref.read(lobbyActionsProvider).leaveRoom(playerId);
+
+    if (player?.isHost == true && room != null) {
+      await ref.read(roomRepositoryProvider).closeRoom(room.id);
+    }
+
     ref.read(currentRoomProvider.notifier).state = null;
     ref.read(currentPlayerProvider.notifier).state = null;
     ref.read(roomSettingsProvider.notifier).state = null;
     if (context.mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _onHostLeft() async {
+    if (_hostLeft || !mounted) return;
+    _hostLeft = true;
+
+    final player = ref.read(currentPlayerProvider);
+    if (player != null) {
+      await ref.read(lobbyActionsProvider).leaveRoom(player.id);
+    }
+
+    ref.read(currentRoomProvider.notifier).state = null;
+    ref.read(currentPlayerProvider.notifier).state = null;
+    ref.read(roomSettingsProvider.notifier).state = null;
+
+    if (!mounted) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('호스트가 방을 나갔습니다.')),
+    );
   }
 
   Future<void> _startGame(BuildContext context, WidgetRef ref, String roomId) async {

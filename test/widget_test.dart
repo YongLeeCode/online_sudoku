@@ -1,9 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:online_sudoku/core/constants/difficulty.dart';
 import 'package:online_sudoku/core/utils/puzzle_generator.dart';
 
 void main() {
   test('PuzzleGenerator produces valid puzzle', () {
-    final data = PuzzleGenerator.generate(seed: 42, difficulty: 5);
+    final data =
+        PuzzleGenerator.generate(seed: 42, difficulty: Difficulty.normal);
 
     for (int r = 0; r < 9; r++) {
       for (int c = 0; c < 9; c++) {
@@ -21,8 +23,8 @@ void main() {
   });
 
   test('Same seed produces same puzzle', () {
-    final a = PuzzleGenerator.generate(seed: 123, difficulty: 3);
-    final b = PuzzleGenerator.generate(seed: 123, difficulty: 3);
+    final a = PuzzleGenerator.generate(seed: 123, difficulty: Difficulty.easy);
+    final b = PuzzleGenerator.generate(seed: 123, difficulty: Difficulty.easy);
 
     for (int r = 0; r < 9; r++) {
       for (int c = 0; c < 9; c++) {

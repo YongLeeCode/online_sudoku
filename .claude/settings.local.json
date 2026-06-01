@@ -9,7 +9,22 @@
       "Bash(flutter test:*)",
       "Bash(pkill -f \"flutter_tools.snapshot run\")",
       "Bash(flutter build:*)",
-      "Bash(open:*)"
+      "Bash(open:*)",
+      "Bash(lsof -ti:8080)",
+      "Bash(xargs kill -9)",
+      "Bash(cat)",
+      "Bash(chmod +x /Users/yong/Code/testflutter/testflutter/run.sh)",
+      "Bash(dart analyze *)",
+      "Bash(adb devices *)",
+      "Bash(/Users/yong/Library/Android/sdk/platform-tools/adb devices *)",
+      "Bash(/Users/yong/Library/Android/sdk/platform-tools/adb logcat *)",
+      "Bash(/Users/yong/Library/Android/sdk/platform-tools/adb shell *)",
+      "Bash(/Users/yong/Library/Android/sdk/platform-tools/adb install *)",
+      "Bash(grep -v \"^--$\")",
+      "Bash(/Users/yong/Library/Android/sdk/platform-tools/adb uninstall *)",
+      "Bash(flutter --version)",
+      "Bash(flutter precache *)",
+      "Bash(git add *)"
     ]
   }
 }

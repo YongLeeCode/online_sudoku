@@ -187,6 +187,22 @@ final roomSettingsStreamProvider =
   return controller.stream;
 });
 
+// heartbeat — 30초마다 last_seen_at 갱신 (방/게임 화면에서 watch)
+final heartbeatProvider = Provider.autoDispose<void>((ref) {
+  final player = ref.read(currentPlayerProvider);
+  if (player == null) return;
+
+  final repo = ref.read(roomRepositoryProvider);
+  unawaited(repo.updateLastSeen(player.id));
+
+  final timer = Timer.periodic(
+    const Duration(seconds: 30),
+    (_) => unawaited(repo.updateLastSeen(player.id)),
+  );
+
+  ref.onDispose(timer.cancel);
+});
+
 // 모든 참여자 준비 완료 여부 (방장 제외)
 final allReadyProvider = Provider<bool>((ref) {
   final playersAsync = ref.watch(playersStreamProvider);

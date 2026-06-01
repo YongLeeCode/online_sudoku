@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/constants/difficulty.dart';
 import '../../core/utils/puzzle_generator.dart';
 import '../../data/models/item_model.dart';
 
@@ -9,7 +10,7 @@ import '../../data/models/item_model.dart';
 final selectedCellProvider = StateProvider<(int, int)?>((_) => null);
 
 // 난이도
-final difficultyProvider = StateProvider<int>((_) => 5);
+final difficultyProvider = StateProvider<Difficulty>((_) => Difficulty.normal);
 
 // 메모 모드 (연필 버튼)
 final memoModeProvider = StateProvider<bool>((_) => false);
@@ -38,10 +39,11 @@ class GameState {
   final Set<(int, int)> itemCells;     // 아이템 지급 칸 (게임 시작 시 고정)
   final List<ItemType> itemPool;        // 이 게임에서 나올 수 있는 아이템 풀
   final List<ItemType?> myItems;        // 내 아이템 슬롯 4칸 (null = 비어있음)
-  final bool isBlinded;                // 블라인드 효과 중
+  final int? blindedBoxIndex;          // 블라인드된 3x3 박스 인덱스 (0~8, null = 없음)
   final int blindRemaining;            // 블라인드 남은 초
   final bool isFrozen;                 // 프리즈 효과 중
   final int freezeRemaining;           // 프리즈 남은 초
+  final bool isShielded;               // 방어막 활성
 
   const GameState({
     required this.puzzle,
@@ -60,18 +62,25 @@ class GameState {
     required this.itemCells,
     required this.itemPool,
     required this.myItems,
-    this.isBlinded = false,
+    this.blindedBoxIndex,
     this.blindRemaining = 0,
     this.isFrozen = false,
     this.freezeRemaining = 0,
+    this.isShielded = false,
   });
 
   double get progress => totalBlanks == 0 ? 0 : filledCount / totalBlanks;
+
+  bool get isBlinded => blindedBoxIndex != null;
 
   bool isOriginalCell(int row, int col) => puzzle[row][col] != 0;
 
   bool isItemCell(int row, int col) =>
       itemCells.contains((row, col)) && current[row][col] == 0;
+
+  bool isCellBlinded(int row, int col) =>
+      blindedBoxIndex != null &&
+      (row ~/ 3) * 3 + (col ~/ 3) == blindedBoxIndex;
 
   bool get isInputBlocked => isPenalized || isFrozen;
 
@@ -92,6 +101,9 @@ class GameState {
 
   bool isNumberCompleted(int number) => (numberCounts[number] ?? 0) >= 9;
 
+  // blindedBoxIndex는 null 자체가 유효한 값(블라인드 해제)이므로 sentinel 사용
+  static const _absent = Object();
+
   GameState copyWith({
     List<List<int>>? current,
     List<List<Set<int>>>? notes,
@@ -102,10 +114,11 @@ class GameState {
     bool? isPenalized,
     int? penaltyRemaining,
     List<ItemType?>? myItems,
-    bool? isBlinded,
+    Object? blindedBoxIndex = _absent,
     int? blindRemaining,
     bool? isFrozen,
     int? freezeRemaining,
+    bool? isShielded,
   }) {
     return GameState(
       puzzle: puzzle,
@@ -124,10 +137,13 @@ class GameState {
       itemCells: itemCells,
       itemPool: itemPool,
       myItems: myItems ?? this.myItems,
-      isBlinded: isBlinded ?? this.isBlinded,
+      blindedBoxIndex: identical(blindedBoxIndex, _absent)
+          ? this.blindedBoxIndex
+          : blindedBoxIndex as int?,
       blindRemaining: blindRemaining ?? this.blindRemaining,
       isFrozen: isFrozen ?? this.isFrozen,
       freezeRemaining: freezeRemaining ?? this.freezeRemaining,
+      isShielded: isShielded ?? this.isShielded,
     );
   }
 }
@@ -150,7 +166,7 @@ class GameNotifier extends StateNotifier<GameState?> {
   GameNotifier() : super(null);
 
   /// 싱글플레이어: 힌트 아이템만 지급
-  void startGame(int difficulty, {int? penaltySeconds}) {
+  void startGame(Difficulty difficulty, {int? penaltySeconds}) {
     final seed = Random().nextInt(0x7FFFFFFF);
     startGameWithSeed(seed, difficulty,
         penaltySeconds: penaltySeconds,
@@ -160,8 +176,9 @@ class GameNotifier extends StateNotifier<GameState?> {
   /// 시드 기반 시작 (멀티플레이어에서도 사용)
   void startGameWithSeed(
     int seed,
-    int difficulty, {
+    Difficulty difficulty, {
     int? penaltySeconds,
+    int? maxItemCount,
     List<ItemType>? itemPool,
   }) {
     final data = PuzzleGenerator.generate(seed: seed, difficulty: difficulty);
@@ -175,8 +192,7 @@ class GameNotifier extends StateNotifier<GameState?> {
       }
     }
     blanks.shuffle(itemRng);
-    final itemCount = (blanks.length / 10).ceil().clamp(3, 6);
-    final itemCells = blanks.take(itemCount).toSet();
+    final itemCells = blanks.take(maxItemCount ?? 5).toSet();
 
     final pool = itemPool ?? ItemType.values.toList();
 
@@ -351,6 +367,15 @@ class GameNotifier extends StateNotifier<GameState?> {
     final completed = filled == s.totalBlanks;
     final newItems = List<ItemType?>.from(s.myItems)..[slotIndex] = null;
 
+    if (s.itemCells.contains((row, col)) && s.itemPool.isNotEmpty) {
+      final newItem = s.itemPool[Random().nextInt(s.itemPool.length)];
+      final emptySlot = newItems.indexOf(null);
+      if (emptySlot != -1) {
+        newItems[emptySlot] = newItem;
+        onItemCollected?.call(newItem);
+      }
+    }
+
     state = s.copyWith(
       current: newCurrent,
       notes: newNotes,
@@ -363,7 +388,7 @@ class GameNotifier extends StateNotifier<GameState?> {
     onProgressChanged?.call(filled, completed);
   }
 
-  /// 슬롯에서 아이템 제거 (힌트 커트 당했을 때)
+  /// 슬롯에서 아이템 제거 (아이템 커터 당했을 때)
   void removeItemAt(int slotIndex) {
     final s = state;
     if (s == null) return;
@@ -371,25 +396,28 @@ class GameNotifier extends StateNotifier<GameState?> {
     state = s.copyWith(myItems: newItems);
   }
 
-  /// 첫 번째 채워진 슬롯의 아이템 제거 (상대가 힌트 커트 사용 시)
-  void removeFirstItem() {
+  /// 첫 번째 채워진 슬롯의 아이템 제거 (상대가 아이템 커터 사용 시), 제거된 아이템 반환
+  ItemType? removeFirstItem() {
     final s = state;
-    if (s == null) return;
+    if (s == null) return null;
     final idx = s.myItems.indexWhere((item) => item != null);
-    if (idx == -1) return;
+    if (idx == -1) return null;
+    final removed = s.myItems[idx];
     final newItems = List<ItemType?>.from(s.myItems)..[idx] = null;
     state = s.copyWith(myItems: newItems);
+    return removed;
   }
 
   // ────────────────────────────────────────────────
   //  아이템 효과 수신 (상대가 나에게 사용)
   // ────────────────────────────────────────────────
 
-  /// 🌫️ 블라인드: 그리드 흐리기
+  /// 🌫️ 블라인드: 랜덤 3x3 박스 숨기기 (숫자만 가림, 입력은 가능)
   void applyBlind(int seconds) {
     final s = state;
     if (s == null) return;
-    state = s.copyWith(isBlinded: true, blindRemaining: seconds);
+    final boxIndex = Random().nextInt(9);
+    state = s.copyWith(blindedBoxIndex: boxIndex, blindRemaining: seconds);
   }
 
   /// ⏸️ 프리즈: 입력 잠금
@@ -417,7 +445,7 @@ class GameNotifier extends StateNotifier<GameState?> {
     if (s == null || !s.isBlinded) return;
     final remaining = s.blindRemaining - 1;
     state = remaining <= 0
-        ? s.copyWith(isBlinded: false, blindRemaining: 0)
+        ? s.copyWith(blindedBoxIndex: null, blindRemaining: 0)
         : s.copyWith(blindRemaining: remaining);
   }
 
@@ -428,5 +456,107 @@ class GameNotifier extends StateNotifier<GameState?> {
     state = remaining <= 0
         ? s.copyWith(isFrozen: false, freezeRemaining: 0)
         : s.copyWith(freezeRemaining: remaining);
+  }
+
+  // ────────────────────────────────────────────────
+  //  신규 아이템 효과
+  // ────────────────────────────────────────────────
+
+  /// 🛡️ 방어막 적용 (자신이 사용)
+  void applyShield() {
+    final s = state;
+    if (s == null) return;
+    state = s.copyWith(isShielded: true);
+  }
+
+  /// 🛡️ 방어막 소모 (적 아이템 차단 시)
+  void consumeShield() {
+    final s = state;
+    if (s == null) return;
+    state = s.copyWith(isShielded: false);
+  }
+
+  /// 💥 리버스: 맞게 채운 칸 하나를 랜덤으로 지움 (상대가 나에게 사용)
+  void applyReverse() {
+    final s = state;
+    if (s == null) return;
+    final filled = <(int, int)>[];
+    for (int r = 0; r < 9; r++) {
+      for (int c = 0; c < 9; c++) {
+        if (!s.isOriginalCell(r, c) && s.current[r][c] != 0) {
+          filled.add((r, c));
+        }
+      }
+    }
+    if (filled.isEmpty) return;
+    final (row, col) = filled[Random().nextInt(filled.length)];
+    final newCurrent = s.current.map((r) => List<int>.from(r)).toList();
+    newCurrent[row][col] = 0;
+    final newErrors = Set<(int, int)>.from(s.errorCells)..remove((row, col));
+    int count = 0;
+    for (int r = 0; r < 9; r++) {
+      for (int c = 0; c < 9; c++) {
+        if (s.puzzle[r][c] == 0 && newCurrent[r][c] != 0) count++;
+      }
+    }
+    state = s.copyWith(current: newCurrent, filledCount: count, errorCells: newErrors);
+    onProgressChanged?.call(count, false);
+  }
+
+  /// 💡 랜덤 힌트: 빈 칸 하나에 정답 자동 입력 (미스터리용)
+  void applyRandomHint() {
+    final s = state;
+    if (s == null || s.isCompleted) return;
+    final empty = <(int, int)>[];
+    for (int r = 0; r < 9; r++) {
+      for (int c = 0; c < 9; c++) {
+        if (!s.isOriginalCell(r, c) && s.current[r][c] == 0) empty.add((r, c));
+      }
+    }
+    if (empty.isEmpty) return;
+    final (row, col) = empty[Random().nextInt(empty.length)];
+    final answer = s.solution[row][col];
+    final newCurrent = s.current.map((r) => List<int>.from(r)).toList();
+    newCurrent[row][col] = answer;
+    final newNotes = _deepCopyNotes(s.notes);
+    newNotes[row][col].clear();
+    for (int i = 0; i < 9; i++) {
+      newNotes[row][i].remove(answer);
+      newNotes[i][col].remove(answer);
+    }
+    final boxRow = (row ~/ 3) * 3;
+    final boxCol = (col ~/ 3) * 3;
+    for (int r = boxRow; r < boxRow + 3; r++) {
+      for (int c = boxCol; c < boxCol + 3; c++) {
+        newNotes[r][c].remove(answer);
+      }
+    }
+    int filled = 0;
+    for (int r = 0; r < 9; r++) {
+      for (int c = 0; c < 9; c++) {
+        if (s.puzzle[r][c] == 0 && newCurrent[r][c] != 0) filled++;
+      }
+    }
+    final completed = filled == s.totalBlanks;
+    final newItems = List<ItemType?>.from(s.myItems);
+
+    if (s.itemCells.contains((row, col)) && s.itemPool.isNotEmpty) {
+      final newItem = s.itemPool[Random().nextInt(s.itemPool.length)];
+      final emptySlot = newItems.indexOf(null);
+      if (emptySlot != -1) {
+        newItems[emptySlot] = newItem;
+        onItemCollected?.call(newItem);
+      }
+    }
+
+    state = s.copyWith(
+      current: newCurrent,
+      notes: newNotes,
+      myItems: newItems,
+      filledCount: filled,
+      isCompleted: completed,
+      completedDuration: completed ? DateTime.now().difference(s.startedAt) : null,
+    );
+    onProgressChanged?.call(filled, completed);
   }
 }

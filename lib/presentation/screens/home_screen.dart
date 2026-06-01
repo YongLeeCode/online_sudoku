@@ -4,6 +4,7 @@ import 'package:gap/gap.dart';
 
 import '../../domain/providers/game_provider.dart';
 import '../../domain/providers/room_provider.dart';
+import '../widgets/difficulty_selector.dart';
 import 'game_screen.dart';
 import 'lobby_screen.dart';
 
@@ -142,7 +143,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
               // 타이틀
               Text(
-                'Online Sudoku',
+                'Sudoku Clash',
                 style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                       fontWeight: FontWeight.w800,
                       color: colorScheme.primary,
@@ -247,33 +248,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
               // 난이도 선택
               Row(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    '난이도 $difficulty',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: _difficultyColor(difficulty),
-                        ),
-                  ),
+                  Icon(Icons.trending_up, size: 20, color: difficulty.color),
                   const Gap(8),
                   Text(
-                    _difficultyLabel(difficulty),
-                    style: TextStyle(color: _difficultyColor(difficulty)),
+                    '난이도',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    difficulty.labelKo,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: difficulty.color,
+                    ),
                   ),
                 ],
               ),
-              Slider(
-                value: difficulty.toDouble(),
-                min: 1,
-                max: 10,
-                divisions: 9,
-                label: '$difficulty',
-                onChanged: (v) {
-                  ref.read(difficultyProvider.notifier).state = v.round();
+              const Gap(10),
+              DifficultySelector(
+                value: difficulty,
+                onChanged: (d) {
+                  ref.read(difficultyProvider.notifier).state = d;
                 },
               ),
-              const Gap(8),
+              const Gap(16),
 
               SizedBox(
                 width: double.infinity,
@@ -299,20 +301,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
       ),
     );
-  }
-
-  String _difficultyLabel(int d) {
-    if (d <= 3) return '쉬움';
-    if (d <= 6) return '보통';
-    if (d <= 9) return '어려움';
-    return '극한';
-  }
-
-  Color _difficultyColor(int d) {
-    if (d <= 3) return Colors.green;
-    if (d <= 6) return Colors.orange;
-    if (d <= 9) return Colors.red;
-    return Colors.purple;
   }
 }
 

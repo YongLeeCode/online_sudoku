@@ -73,6 +73,7 @@ class SudokuGrid extends ConsumerWidget {
                   isSameRowOrCol: isSameRowOrCol,
                   notes: game.notes[row][col],
                   isItemCell: game.isItemCell(row, col),
+                  isBlinded: game.isCellBlinded(row, col),
                   onTap: () {
                     ref.read(selectedCellProvider.notifier).state = (row, col);
                   },

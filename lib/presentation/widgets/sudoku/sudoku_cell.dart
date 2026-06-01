@@ -11,6 +11,7 @@ class SudokuCell extends StatelessWidget {
   final VoidCallback onTap;
 
   final bool isItemCell;
+  final bool isBlinded;
 
   const SudokuCell({
     super.key,
@@ -22,6 +23,7 @@ class SudokuCell extends StatelessWidget {
     required this.isSameRowOrCol,
     required this.notes,
     this.isItemCell = false,
+    this.isBlinded = false,
     required this.onTap,
   });
 
@@ -52,7 +54,12 @@ class SudokuCell extends StatelessWidget {
     }
 
     Widget? cellChild;
-    if (value != 0) {
+    if (isBlinded && value != 0) {
+      // 블라인드: 채워진 칸은 배경색으로만 표시 (숫자 숨김)
+      bgColor = isSelected
+          ? colorScheme.primaryContainer
+          : colorScheme.secondaryContainer.withValues(alpha: 0.7);
+    } else if (value != 0) {
       cellChild = Text(
         '$value',
         style: TextStyle(
@@ -61,7 +68,8 @@ class SudokuCell extends StatelessWidget {
           color: textColor,
         ),
       );
-    } else if (notes.isNotEmpty) {
+    } else if (!isBlinded && notes.isNotEmpty) {
+      // 블라인드 중에는 메모도 숨김
       cellChild = _buildNotes(colorScheme);
     }
 

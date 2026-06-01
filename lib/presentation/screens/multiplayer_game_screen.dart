@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'dart:ui';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../data/models/item_model.dart';
 import '../../domain/providers/game_provider.dart';
 import '../../domain/providers/multiplayer_provider.dart';
@@ -38,14 +39,26 @@ class _MultiplayerGameScreenState
   final Set<String> _processedEventIds = {};
   DateTime _lastEventCheck = DateTime.now().toUtc().subtract(const Duration(seconds: 10));
 
+  // cleanup 경쟁 조건 방어: 스트림이 빈 값을 emit해도 마지막 유효 상태 보존
+  List<OpponentState> _lastKnownOpponentStates = [];
+
   // 아이템 타겟 선택 모드: 선택된 슬롯 인덱스
   int? _selectedItemSlot;
+
+  // 인라인 알림
+  String? _notifText;
+  Color _notifColor = Colors.black;
+  Timer? _notifTimer;
+
+  // 플레이어 게이지 GlobalKey (비행 애니메이션용)
+  final Map<String, GlobalKey> _gaugeKeys = {};
 
   @override
   void initState() {
     super.initState();
 
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
       final game = ref.read(gameProvider);
       if (game != null && !game.isCompleted) {
         setState(() {
@@ -57,19 +70,12 @@ class _MultiplayerGameScreenState
     final gameNotifier = ref.read(gameProvider.notifier);
     gameNotifier.onProgressChanged = _onProgressChanged;
     gameNotifier.onItemCollected = (item) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${item.emoji} ${item.name} 획득!'),
-            duration: const Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      if (mounted) _showNotif('${item.emoji} ${item.name} 획득!', Colors.indigo);
     };
 
     // 2초마다 나를 타겟으로 한 아이템 이벤트 확인
     _itemEventTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!mounted) return;
       _checkIncomingItemEvents();
     });
   }
@@ -82,6 +88,7 @@ class _MultiplayerGameScreenState
     _freezeTimer?.cancel();
     _overtimeTimer?.cancel();
     _itemEventTimer?.cancel();
+    _notifTimer?.cancel();
     ref.read(gameProvider.notifier).onProgressChanged = null;
     ref.read(gameProvider.notifier).onItemCollected = null;
     ref.read(memoModeProvider.notifier).state = false;
@@ -93,17 +100,20 @@ class _MultiplayerGameScreenState
   // ────────────────────────────────────────────────
 
   Future<void> _checkIncomingItemEvents() async {
+    if (!mounted) return;
     final gameId = ref.read(currentGameIdProvider);
     final playerId = ref.read(currentPlayerProvider)?.id;
     if (gameId == null || playerId == null) return;
 
+    final eventRepo = ref.read(eventRepositoryProvider);
     try {
-      final events = await ref.read(eventRepositoryProvider).fetchItemEventsAfter(
+      final events = await eventRepo.fetchItemEventsAfter(
             gameId: gameId,
             myPlayerId: playerId,
             after: _lastEventCheck,
           );
 
+      if (!mounted) return;
       _lastEventCheck = DateTime.now().toUtc();
 
       for (final event in events) {
@@ -116,6 +126,8 @@ class _MultiplayerGameScreenState
   }
 
   void _applyItemEvent(Map<String, dynamic> event) {
+    if (!mounted) return;
+
     final payload = event['payload'] as Map<String, dynamic>?;
     if (payload == null) return;
 
@@ -123,51 +135,100 @@ class _MultiplayerGameScreenState
     if (itemType == null) return;
 
     final duration = (payload['duration'] as num?)?.toInt() ?? 5;
+    final senderId = event['player_id'] as String? ?? '';
+    final myId = ref.read(currentPlayerProvider)?.id ?? '';
+
+    if (senderId.isNotEmpty && myId.isNotEmpty) {
+      _startFlyAnim(itemType.emoji, senderId, myId);
+    }
 
     switch (itemType) {
       case ItemType.blind:
-        ref.read(gameProvider.notifier).applyBlind(duration);
-        _startBlindCountdown();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('🌫️ 블라인드 당했습니다!'),
-              backgroundColor: Colors.deepPurple,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+        final shielded = ref.read(gameProvider)?.isShielded ?? false;
+        if (shielded) {
+          ref.read(gameProvider.notifier).consumeShield();
+          if (mounted) _showNotif('🛡️ 방어막이 블라인드를 막았습니다!', Colors.green);
+        } else {
+          ref.read(gameProvider.notifier).applyBlind(duration);
+          _startBlindCountdown();
+          if (mounted) {
+            final boxNum = (ref.read(gameProvider)?.blindedBoxIndex ?? 0) + 1;
+            _showNotif('🌫️ $boxNum번 박스 블라인드! ($duration초)', Colors.deepPurple);
+          }
         }
       case ItemType.freeze:
-        ref.read(gameProvider.notifier).applyFreeze(duration);
-        _startFreezeCountdown();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('⏸️ 프리즈 당했습니다!'),
-              backgroundColor: Colors.indigo,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+        final shielded = ref.read(gameProvider)?.isShielded ?? false;
+        if (shielded) {
+          ref.read(gameProvider.notifier).consumeShield();
+          if (mounted) _showNotif('🛡️ 방어막이 프리즈를 막았습니다!', Colors.green);
+        } else {
+          ref.read(gameProvider.notifier).applyFreeze(duration);
+          _startFreezeCountdown();
+          if (mounted) _showNotif('⏸️ 프리즈 당했습니다!', Colors.indigo);
         }
-      case ItemType.hintCut:
-        ref.read(gameProvider.notifier).removeFirstItem();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✂️ 아이템 하나가 제거됐습니다!'),
-              backgroundColor: Colors.orange,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+      case ItemType.itemCut:
+        final shielded = ref.read(gameProvider)?.isShielded ?? false;
+        if (shielded) {
+          ref.read(gameProvider.notifier).consumeShield();
+          if (mounted) _showNotif('🛡️ 방어막이 아이템 커터를 막았습니다!', Colors.green);
+        } else {
+          final removed = ref.read(gameProvider.notifier).removeFirstItem();
+          if (mounted) {
+            final msg = removed != null
+                ? '✂️ ${removed.emoji} ${removed.name}이(가) 제거됐습니다!'
+                : '✂️ 아이템 커터! 제거할 아이템이 없었습니다.';
+            _showNotif(msg, Colors.deepOrange);
+          }
+        }
+      case ItemType.reverse:
+        final shielded = ref.read(gameProvider)?.isShielded ?? false;
+        if (shielded) {
+          ref.read(gameProvider.notifier).consumeShield();
+          if (mounted) _showNotif('🛡️ 방어막이 리버스를 막았습니다!', Colors.green);
+        } else {
+          ref.read(gameProvider.notifier).applyReverse();
+          if (mounted) _showNotif('💥 리버스! 맞은 칸 하나가 지워졌습니다!', Colors.red);
         }
       case ItemType.hint:
-        break; // 힌트는 자기 자신에게만 사용
+      case ItemType.shield:
+      case ItemType.mystery:
+        break;
     }
   }
 
   // ────────────────────────────────────────────────
   //  아이템 사용 (발신)
   // ────────────────────────────────────────────────
+
+  void _showNotif(String text, Color color) {
+    _notifTimer?.cancel();
+    setState(() { _notifText = text; _notifColor = color; });
+    _notifTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _notifText = null);
+    });
+  }
+
+  void _startFlyAnim(String emoji, String fromPlayerId, String toPlayerId) {
+    if (!mounted) return;
+    final fromKey = _gaugeKeys[fromPlayerId];
+    final toKey = _gaugeKeys[toPlayerId];
+    if (fromKey == null || toKey == null) return;
+    final fromBox = fromKey.currentContext?.findRenderObject() as RenderBox?;
+    final toBox = toKey.currentContext?.findRenderObject() as RenderBox?;
+    if (fromBox == null || toBox == null) return;
+    final from = fromBox.localToGlobal(fromBox.size.center(Offset.zero));
+    final to = toBox.localToGlobal(toBox.size.center(Offset.zero));
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => _FlyingEmoji(
+        emoji: emoji,
+        from: from,
+        to: to,
+        onDone: () => entry.remove(),
+      ),
+    );
+    Overlay.of(context).insert(entry);
+  }
 
   void _onItemTap(int slotIndex) {
     final game = ref.read(gameProvider);
@@ -178,12 +239,7 @@ class _MultiplayerGameScreenState
     if (item == ItemType.hint) {
       final selected = ref.read(selectedCellProvider);
       if (selected == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('💡 힌트를 적용할 빈 칸을 먼저 선택해주세요'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        _showNotif('💡 힌트를 적용할 빈 칸을 먼저 선택해주세요', Colors.amber);
         return;
       }
       final (row, col) = selected;
@@ -191,37 +247,113 @@ class _MultiplayerGameScreenState
       if (gameNow == null ||
           gameNow.isOriginalCell(row, col) ||
           gameNow.current[row][col] != 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('💡 비어있는 칸을 선택해주세요'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        _showNotif('💡 비어있는 칸을 선택해주세요', Colors.amber);
         return;
       }
       ref.read(gameProvider.notifier).useHintItem(slotIndex, row, col);
       setState(() => _selectedItemSlot = null);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('💡 힌트 적용!'),
-          duration: Duration(seconds: 1),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _showNotif('💡 힌트 적용!', Colors.amber);
+    } else if (item == ItemType.shield) {
+      ref.read(gameProvider.notifier).applyShield();
+      ref.read(gameProvider.notifier).removeItemAt(slotIndex);
+      setState(() => _selectedItemSlot = null);
+      _showNotif('🛡️ 방어막 활성화! 다음 상대 아이템을 막아냅니다', Colors.green);
+    } else if (item == ItemType.mystery) {
+      _useMysteryItem(slotIndex);
     } else {
-      // 타겟 선택 모드 토글
       setState(() {
         _selectedItemSlot = _selectedItemSlot == slotIndex ? null : slotIndex;
       });
-      if (_selectedItemSlot != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${item.emoji} ${item.name} - 상대방 게이지를 탭하세요'),
-            duration: const Duration(seconds: 3),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+    }
+  }
+
+  Future<void> _useMysteryItem(int slotIndex) async {
+    final rng = Random();
+    // 미스터리 효과 풀: 자신에게(좋음/나쁨) + 상대에게(좋음/나쁨)
+    const outcomes = [
+      'hint_self',    // 💡 나에게 랜덤 힌트 (좋음)
+      'shield_self',  // 🛡️ 나에게 방어막 (좋음)
+      'freeze_self',  // ❄️ 나에게 3초 프리즈 (나쁨)
+      'blind_self',   // 🌫️ 나에게 블라인드 (나쁨)
+      'freeze_opp',   // ⏸️ 상대에게 프리즈 (상대에게 나쁨)
+      'blind_opp',    // 🌫️ 상대에게 블라인드 (상대에게 나쁨)
+      'reverse_opp',  // 💥 상대 칸 지우기 (상대에게 나쁨)
+      'hint_opp',     // 💡 상대에게 힌트 (상대에게 좋음 = 나에게 나쁨)
+    ];
+    final outcome = outcomes[rng.nextInt(outcomes.length)];
+
+    ref.read(gameProvider.notifier).removeItemAt(slotIndex);
+    setState(() => _selectedItemSlot = null);
+
+    switch (outcome) {
+      case 'hint_self':
+        ref.read(gameProvider.notifier).applyRandomHint();
+        if (mounted) _showNotif('❓ → 💡 럭키! 랜덤 힌트 발동!', Colors.amber);
+
+      case 'shield_self':
+        ref.read(gameProvider.notifier).applyShield();
+        if (mounted) _showNotif('❓ → 🛡️ 럭키! 방어막 발동!', Colors.green);
+
+      case 'freeze_self':
+        ref.read(gameProvider.notifier).applyFreeze(3);
+        _startFreezeCountdown();
+        if (mounted) _showNotif('❓ → ❄️ 불운! 자신이 3초 프리즈!', Colors.indigo);
+
+      case 'blind_self':
+        ref.read(gameProvider.notifier).applyBlind(5);
+        _startBlindCountdown();
+        if (mounted) _showNotif('❓ → 🌫️ 불운! 자신에게 블라인드!', Colors.deepPurple);
+
+      case 'freeze_opp':
+      case 'blind_opp':
+      case 'reverse_opp':
+      case 'hint_opp':
+        final opponents = ref.read(opponentStatesProvider).value
+            ?.where((o) => !o.isMe && o.isConnected)
+            .toList() ?? [];
+        if (opponents.isEmpty) {
+          ref.read(gameProvider.notifier).applyRandomHint();
+          if (mounted) _showNotif('❓ → 💡 상대가 없어 자신에게 힌트 적용!', Colors.amber);
+          return;
+        }
+        final targetId = opponents[rng.nextInt(opponents.length)].playerId;
+        final gameId = ref.read(currentGameIdProvider);
+        final myId = ref.read(currentPlayerProvider)?.id;
+        if (gameId == null || myId == null) return;
+
+        if (outcome == 'hint_opp') {
+          ref.read(gameProvider.notifier).applyReverse();
+          if (mounted) _showNotif('❓ → 💥 불운! 자신의 칸이 지워졌어요...', Colors.red);
+          return;
+        }
+
+        ItemType eventType;
+        int eventDuration;
+        String msg;
+        switch (outcome) {
+          case 'freeze_opp':
+            eventType = ItemType.freeze; eventDuration = 5;
+            msg = '❓ → ⏸️ 상대에게 프리즈 발동!';
+          case 'blind_opp':
+            eventType = ItemType.blind; eventDuration = 5;
+            msg = '❓ → 🌫️ 상대에게 블라인드 발동!';
+          default: // reverse_opp
+            eventType = ItemType.reverse; eventDuration = 0;
+            msg = '❓ → 💥 상대의 칸을 지웠어요!';
+        }
+        try {
+          await ref.read(eventRepositoryProvider).sendItemEvent(
+            gameId: gameId,
+            fromPlayerId: myId,
+            itemType: eventType,
+            targetPlayerId: targetId,
+            duration: eventDuration,
+          );
+          if (mounted) {
+            _showNotif(msg, Colors.orange);
+            _startFlyAnim('❓', myId, targetId);
+          }
+        } catch (_) {}
     }
   }
 
@@ -238,36 +370,22 @@ class _MultiplayerGameScreenState
     final myPlayerId = ref.read(currentPlayerProvider)?.id;
     if (gameId == null || myPlayerId == null) return;
 
-    final penaltySeconds = ref.read(roomSettingsProvider)?.penaltySeconds ?? 5;
-
     try {
       await ref.read(eventRepositoryProvider).sendItemEvent(
             gameId: gameId,
             fromPlayerId: myPlayerId,
             itemType: item,
             targetPlayerId: targetPlayerId,
-            duration: item == ItemType.freeze ? penaltySeconds : 5,
+            duration: item == ItemType.freeze ? 5 : item == ItemType.reverse ? 0 : 30,
           );
 
-      // 슬롯에서 아이템 제거
+      if (!mounted) return;
       ref.read(gameProvider.notifier).removeItemAt(slotIndex);
       setState(() => _selectedItemSlot = null);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${item.emoji} ${item.name} 사용!'),
-            duration: const Duration(seconds: 1),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      _showNotif('${item.emoji} ${item.name} 사용!', Colors.orange);
+      _startFlyAnim(item.emoji, myPlayerId, targetPlayerId);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('아이템 사용 실패: $e')),
-        );
-      }
+      if (mounted) _showNotif('아이템 사용 실패: $e', Colors.red);
     }
   }
 
@@ -278,6 +396,7 @@ class _MultiplayerGameScreenState
   void _startPenaltyCountdown() {
     _penaltyTimer?.cancel();
     _penaltyTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
       final game = ref.read(gameProvider);
       if (game == null || !game.isPenalized) {
         _penaltyTimer?.cancel();
@@ -290,6 +409,7 @@ class _MultiplayerGameScreenState
   void _startBlindCountdown() {
     _blindTimer?.cancel();
     _blindTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
       final game = ref.read(gameProvider);
       if (game == null || !game.isBlinded) {
         _blindTimer?.cancel();
@@ -302,6 +422,7 @@ class _MultiplayerGameScreenState
   void _startFreezeCountdown() {
     _freezeTimer?.cancel();
     _freezeTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
       final game = ref.read(gameProvider);
       if (game == null || !game.isFrozen) {
         _freezeTimer?.cancel();
@@ -312,9 +433,10 @@ class _MultiplayerGameScreenState
   }
 
   void _startOvertime() {
-    ref.read(overtimeRemainingProvider.notifier).state = 60;
+    ref.read(overtimeRemainingProvider.notifier).state = AppConstants.overtimeSeconds;
     _overtimeTimer?.cancel();
     _overtimeTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
       final remaining = ref.read(overtimeRemainingProvider) - 1;
       ref.read(overtimeRemainingProvider.notifier).state = remaining;
       if (remaining <= 0) {
@@ -329,6 +451,7 @@ class _MultiplayerGameScreenState
   // ────────────────────────────────────────────────
 
   void _onProgressChanged(int progress, bool isCompleted) async {
+    if (!mounted) return;
     final gameId = ref.read(currentGameIdProvider);
     final playerId = ref.read(currentPlayerProvider)?.id;
     if (gameId == null || playerId == null) return;
@@ -337,81 +460,104 @@ class _MultiplayerGameScreenState
     await repo.updateProgress(gameId: gameId, playerId: playerId, progress: progress);
 
     if (isCompleted) {
-      final rank = await repo.playerCleared(gameId: gameId, playerId: playerId);
-      if (rank == 1) {
+      if (!mounted) return;
+      // 완료한 순간 오버타임 시작 (RPC 결과와 무관하게)
+      if (!ref.read(firstClearProvider)) {
         ref.read(firstClearProvider.notifier).state = true;
+      }
+      try {
+        await repo.playerCleared(gameId: gameId, playerId: playerId);
+      } catch (_) {
+        // rank 저장 실패해도 게임 종료 흐름에는 영향 없음
       }
     }
   }
 
   Future<void> _leaveGame() async {
+    if (!mounted) return;
     final playerId = ref.read(currentPlayerProvider)?.id;
+    final lobbyActions = ref.read(lobbyActionsProvider);
     if (playerId != null) {
       try {
-        await ref.read(lobbyActionsProvider).leaveRoom(playerId);
+        await lobbyActions.leaveRoom(playerId);
       } catch (_) {
         // 이미 삭제된 경우 무시
       }
     }
+    if (!mounted) return;
     ref.read(currentRoomProvider.notifier).state = null;
     ref.read(currentPlayerProvider.notifier).state = null;
     ref.read(currentGameIdProvider.notifier).state = null;
-    if (mounted) {
-      Navigator.of(context).popUntil((route) => route.isFirst);
-    }
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   void _endGame() async {
     if (_gameEnded) return;
     _gameEnded = true;
 
+    // 타이머 즉시 취소 — cleanup 후 삭제된 레코드에 이벤트 쓰는 것 방지
+    _itemEventTimer?.cancel();
+    _overtimeTimer?.cancel();
+
+    if (!mounted) return;
     final gameId = ref.read(currentGameIdProvider);
     final roomId = ref.read(currentRoomProvider)?.id;
+    final myPlayerId = ref.read(currentPlayerProvider)?.id;
     if (gameId == null) return;
 
+    // cleanup으로 스트림이 빈 값을 emit하기 전에 찍어둔 마지막 유효 스냅샷 사용
+    final inMemoryStates = List<OpponentState>.of(_lastKnownOpponentStates);
+
     final repo = ref.read(gameRepositoryProvider);
-    await repo.finishGame(gameId);
+    try {
+      await repo.finishGame(gameId);
+    } catch (_) {}
 
-    // 결과 fetch (삭제 전에)
-    final states = await repo.getPlayerGameStates(gameId);
-    final myPlayerId = ref.read(currentPlayerProvider)?.id;
+    // 메모리 스냅샷 우선 사용, 없으면 DB에서 조회
+    List<OpponentState> results;
+    if (inMemoryStates.isNotEmpty) {
+      results = inMemoryStates;
+    } else {
+      try {
+        final states = await repo.getPlayerGameStates(gameId);
+        results = states.map((s) {
+          final players = s['players'] as Map<String, dynamic>?;
+          return OpponentState(
+            playerId: s['player_id'] as String,
+            nickname: players?['nickname'] as String? ?? '???',
+            progress: s['progress'] as int,
+            totalBlanks: s['total_blanks'] as int,
+            rank: s['rank'] as int?,
+            finishedAt: s['finished_at'] != null
+                ? DateTime.parse(s['finished_at'] as String)
+                : null,
+            isMe: s['player_id'] == myPlayerId,
+          );
+        }).toList();
+      } catch (_) {
+        results = [];
+      }
+    }
 
-    final results = states.map((s) {
-      final players = s['players'] as Map<String, dynamic>?;
-      return OpponentState(
-        playerId: s['player_id'] as String,
-        nickname: players?['nickname'] as String? ?? '???',
-        progress: s['progress'] as int,
-        totalBlanks: s['total_blanks'] as int,
-        rank: s['rank'] as int?,
-        finishedAt: s['finished_at'] != null
-            ? DateTime.parse(s['finished_at'] as String)
-            : null,
-        isMe: s['player_id'] == myPlayerId,
-      );
-    }).toList();
-
-    // DB 전체 삭제 (결과는 이미 메모리에 있음)
+    // DB 전체 삭제 (먼저 호출한 플레이어만 성공, 나머지는 무시)
     if (roomId != null) {
       try {
         await repo.cleanupGame(gameId: gameId, roomId: roomId);
-      } catch (_) {
-        // 삭제 실패 시 결과 표시는 계속 진행
-      }
+      } catch (_) {}
     }
+
+    if (!mounted) return;
 
     // 로컬 상태 초기화
     ref.read(currentGameIdProvider.notifier).state = null;
     ref.read(currentRoomProvider.notifier).state = null;
     ref.read(currentPlayerProvider.notifier).state = null;
     ref.read(firstClearProvider.notifier).state = false;
-    ref.read(overtimeRemainingProvider.notifier).state = 60;
+    ref.read(overtimeRemainingProvider.notifier).state = AppConstants.overtimeSeconds;
 
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => ResultScreen(results: results)),
-      );
-    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => ResultScreen(results: results)),
+    );
   }
 
   String _formatDuration(Duration d) {
@@ -426,6 +572,7 @@ class _MultiplayerGameScreenState
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(heartbeatProvider);
     final game = ref.watch(gameProvider);
     final colorScheme = Theme.of(context).colorScheme;
     final opponentsAsync = ref.watch(opponentStatesProvider);
@@ -455,16 +602,15 @@ class _MultiplayerGameScreenState
 
     ref.listen(opponentStatesProvider, (prev, next) {
       next.whenData((states) {
-        final anyCleared = states.any((s) => s.rank != null);
+        if (states.isNotEmpty) _lastKnownOpponentStates = states;
+
+        final anyCleared = states.any((s) => s.rank != null || s.progressPercent >= 1.0);
         if (anyCleared && !ref.read(firstClearProvider)) {
           ref.read(firstClearProvider.notifier).state = true;
         }
-        final connectedPlayers = states.where((s) => s.isConnected).toList();
-        if (connectedPlayers.length <= 1 && !_gameEnded) {
-          _endGame();
-          return;
-        }
-        final allDone = states.every((s) => s.rank != null || !s.isConnected);
+        final allDone = states.every(
+          (s) => s.rank != null || s.progressPercent >= 1.0 || !s.isConnected,
+        );
         if (allDone && !_gameEnded) _endGame();
       });
     });
@@ -521,20 +667,50 @@ class _MultiplayerGameScreenState
             children: [
               Column(
                 children: [
-                  // 오버타임 경고
-                  if (firstClear && !game.isCompleted)
+                  // 오버타임 카운트다운 배너
+                  if (firstClear)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      color: Colors.orange.shade100,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.timer, size: 18, color: Colors.orange.shade800),
+                          const Gap(6),
+                          Text(
+                            '$overtimeRemaining초 후 게임 종료!',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: Colors.orange.shade900,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // 블라인드 배너
+                  if (game.isBlinded)
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(vertical: 6),
-                      color: Colors.red.shade50,
-                      child: Text(
-                        '1등 확정! 남은 시간: $overtimeRemaining초',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: Colors.red.shade700,
-                          fontSize: 15,
-                        ),
+                      color: Colors.deepPurple.shade50,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text('🌫️', style: TextStyle(fontSize: 14)),
+                          const Gap(6),
+                          Text(
+                            '${game.blindedBoxIndex! + 1}번 박스 블라인드 — ${game.blindRemaining}초',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Colors.deepPurple.shade700,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
 
@@ -546,19 +722,6 @@ class _MultiplayerGameScreenState
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        // 타겟 선택 모드 안내
-                        if (isTargeting)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: Text(
-                              '▶ 상대 선택',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: colorScheme.tertiary,
-                              ),
-                            ),
-                          ),
                         ...List.generate(4, (i) {
                           return Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -605,6 +768,7 @@ class _MultiplayerGameScreenState
                                 : o.progressPercent;
                             final canTarget = isTargeting && !o.isMe;
 
+                            final key = _gaugeKeys.putIfAbsent(o.playerId, () => GlobalKey());
                             return Expanded(
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -612,13 +776,16 @@ class _MultiplayerGameScreenState
                                   onTap: canTarget
                                       ? () => _useItemOnTarget(o.playerId)
                                       : null,
-                                  child: _PlayerGauge(
-                                    nickname: o.nickname,
-                                    progress: effectiveProgress,
-                                    isMe: o.isMe,
-                                    isCleared: o.rank != null ||
-                                        (o.isMe && game.isCompleted),
-                                    isTargetable: canTarget,
+                                  child: Container(
+                                    key: key,
+                                    child: _PlayerGauge(
+                                      nickname: o.nickname,
+                                      progress: effectiveProgress,
+                                      isMe: o.isMe,
+                                      isCleared: o.rank != null ||
+                                          (o.isMe && game.isCompleted),
+                                      isTargetable: canTarget,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -641,6 +808,33 @@ class _MultiplayerGameScreenState
 
                   const Spacer(),
 
+                  if (_notifText != null)
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _notifColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: _notifColor.withValues(alpha: 0.4)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _notifText!,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: _notifColor,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
                   if (!game.isCompleted) const NumberPad(),
 
                   if (game.isCompleted)
@@ -656,7 +850,9 @@ class _MultiplayerGameScreenState
                               const Icon(Icons.check_circle, color: Colors.green),
                               const Gap(8),
                               Text(
-                                '완료! 다른 플레이어를 기다리는 중...',
+                                firstClear
+                                    ? '완료! $overtimeRemaining초 후 결과 화면으로 이동합니다'
+                                    : '완료! 다른 플레이어를 기다리는 중...',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w600,
                                   color: Colors.green.shade700,
@@ -702,41 +898,7 @@ class _MultiplayerGameScreenState
     );
   }
 
-  Widget _buildGrid(GameState game) {
-    if (!game.isBlinded) return const SudokuGrid();
-
-    return Stack(
-      children: [
-        const SudokuGrid(),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: Container(
-              color: Colors.purple.withValues(alpha: 0.2),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('🌫️', style: TextStyle(fontSize: 36)),
-                    const Gap(8),
-                    Text(
-                      '블라인드 ${game.blindRemaining}초',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+  Widget _buildGrid(GameState game) => const SudokuGrid();
 }
 
 class _BlockOverlay extends StatelessWidget {
@@ -794,6 +956,83 @@ class _BlockOverlay extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _FlyingEmoji extends StatefulWidget {
+  final String emoji;
+  final Offset from;
+  final Offset to;
+  final VoidCallback onDone;
+
+  const _FlyingEmoji({
+    required this.emoji,
+    required this.from,
+    required this.to,
+    required this.onDone,
+  });
+
+  @override
+  State<_FlyingEmoji> createState() => _FlyingEmojiState();
+}
+
+class _FlyingEmojiState extends State<_FlyingEmoji>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<Offset> _pos;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 650),
+    );
+    _pos = Tween<Offset>(begin: widget.from, end: widget.to)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+    _scale = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.6, end: 1.5), weight: 30),
+      TweenSequenceItem(tween: Tween(begin: 1.5, end: 1.0), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.6), weight: 30),
+    ]).animate(_ctrl);
+    _ctrl.forward().then((_) => widget.onDone());
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, _) {
+        final pos = _pos.value;
+        return Stack(
+          children: [
+            Positioned(
+              left: pos.dx - 18,
+              top: pos.dy - 18,
+              child: IgnorePointer(
+                child: Transform.scale(
+                  scale: _scale.value,
+                  child: Text(
+                    widget.emoji,
+                    style: const TextStyle(
+                      fontSize: 32,
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

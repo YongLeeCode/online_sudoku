@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../data/repositories/event_repository.dart';
 import '../../data/repositories/game_repository.dart';
 import 'room_provider.dart';
@@ -30,7 +31,7 @@ final currentGameSeedProvider = StateProvider<int?>((_) => null);
 final firstClearProvider = StateProvider<bool>((_) => false);
 
 // 오버타임 남은 시간 (초)
-final overtimeRemainingProvider = StateProvider<int>((_) => 60);
+final overtimeRemainingProvider = StateProvider<int>((_) => AppConstants.overtimeSeconds);
 
 // 다른 플레이어들의 진행률 실시간 조회
 final opponentStatesProvider =
@@ -41,10 +42,13 @@ final opponentStatesProvider =
 
   final repo = ref.read(gameRepositoryProvider);
   final controller = StreamController<List<OpponentState>>();
+  bool disposed = false;
 
   Future<void> fetch() async {
+    if (disposed) return;
     try {
       final states = await repo.getPlayerGameStates(gameId);
+      if (disposed || controller.isClosed) return;
       final opponents = states.map((s) {
         final players = s['players'] as Map<String, dynamic>?;
         return OpponentState(
@@ -60,7 +64,7 @@ final opponentStatesProvider =
           isConnected: players?['is_connected'] as bool? ?? false,
         );
       }).toList();
-      if (!controller.isClosed) controller.add(opponents);
+      if (!disposed && !controller.isClosed) controller.add(opponents);
     } catch (_) {}
   }
 
@@ -75,11 +79,12 @@ final opponentStatesProvider =
         event: PostgresChangeEvent.all,
         schema: 'public',
         table: 'player_game_states',
-        callback: (_) => fetch(),
+        callback: (_) { if (!disposed) fetch(); },
       )
       .subscribe();
 
   ref.onDispose(() {
+    disposed = true;
     timer.cancel();
     channel.unsubscribe();
     controller.close();

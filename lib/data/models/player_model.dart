@@ -6,6 +6,7 @@ class PlayerModel {
   final bool isReady;
   final bool isConnected;
   final DateTime joinedAt;
+  final DateTime? lastSeenAt;
 
   const PlayerModel({
     required this.id,
@@ -15,6 +16,7 @@ class PlayerModel {
     required this.isReady,
     required this.isConnected,
     required this.joinedAt,
+    this.lastSeenAt,
   });
 
   factory PlayerModel.fromJson(Map<String, dynamic> json) {
@@ -26,6 +28,9 @@ class PlayerModel {
       isReady: json['is_ready'] as bool,
       isConnected: json['is_connected'] as bool,
       joinedAt: DateTime.parse(json['joined_at'] as String),
+      lastSeenAt: json['last_seen_at'] != null
+          ? DateTime.parse(json['last_seen_at'] as String)
+          : null,
     );
   }
 

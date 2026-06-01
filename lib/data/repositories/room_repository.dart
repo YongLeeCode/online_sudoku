@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/constants/difficulty.dart';
 import '../../core/constants/supabase_constants.dart';
 import '../../core/errors/app_exception.dart';
 import '../models/player_model.dart';
@@ -46,10 +47,10 @@ class RoomRepository {
     // 방 설정 생성
     await _client.from(SupabaseConstants.roomSettingsTable).insert({
       'room_id': room.id,
-      'difficulty': 5,
+      'difficulty': Difficulty.normal.dbValue,
       'penalty_seconds': 5,
-      'item_interval': 10,
-      'allowed_items': ['hint', 'blind', 'hint_cut', 'freeze'],
+      'item_interval': 5,
+      'allowed_items': ['hint', 'blind', 'item_cut', 'freeze', 'shield', 'reverse', 'mystery'],
       'hint_counts': {},
     });
 
@@ -145,6 +146,14 @@ class RoomRepository {
         .eq('id', roomId);
   }
 
+  /// 호스트 이탈 — 방을 closed로 표시 (다른 플레이어들이 감지해 홈으로 이동)
+  Future<void> closeRoom(String roomId) async {
+    await _client
+        .from(SupabaseConstants.roomsTable)
+        .update({'status': 'closed'})
+        .eq('id', roomId);
+  }
+
   /// 플레이어 목록 조회
   Future<List<PlayerModel>> getPlayers(String roomId) async {
     final data = await _client
@@ -169,6 +178,22 @@ class RoomRepository {
     await _client
         .from(SupabaseConstants.playersTable)
         .update({'is_connected': false})
+        .eq('id', playerId);
+  }
+
+  /// 플레이어 재연결 (앱 복귀)
+  Future<void> reconnectPlayer(String playerId) async {
+    await _client
+        .from(SupabaseConstants.playersTable)
+        .update({'is_connected': true, 'last_seen_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', playerId);
+  }
+
+  /// heartbeat — 살아있음을 서버에 알림
+  Future<void> updateLastSeen(String playerId) async {
+    await _client
+        .from(SupabaseConstants.playersTable)
+        .update({'last_seen_at': DateTime.now().toUtc().toIso8601String()})
         .eq('id', playerId);
   }
 

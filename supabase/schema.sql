@@ -15,7 +15,8 @@ create table rooms (
 -- 2. room_settings 테이블
 create table room_settings (
   room_id uuid primary key references rooms(id) on delete cascade,
-  difficulty int not null default 5 check (difficulty between 1 and 10),
+  -- 난이도 5단계: 1=VeryEasy, 2=Easy, 3=Normal, 4=Hard, 5=Extreme
+  difficulty int not null default 3 check (difficulty between 1 and 5),
   penalty_seconds int not null default 5,
   item_interval int not null default 10,
   allowed_items jsonb not null default '["hint","blind","hint_cut","freeze"]'::jsonb,
