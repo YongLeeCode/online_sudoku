@@ -60,39 +60,52 @@
 
 ---
 
-## 🏠 Phase 2 — 홈 화면 Mode 구조 개편 🟡
+## 🏠 Phase 2 — 홈 화면 Mode 구조 개편 🟡 (완료)
 
-> 상단에 **Mode 선택(Single / Multi / Rank)**, 선택에 따라 하단 내용이 바뀌는 구조.
+> 상단에 **Mode 선택(Single / Multi / Rank)**, 선택에 따라 하단 내용이 바뀌는 구조. **완료 (2026-06-02)**
 
-- [ ] 상단 Mode 탭/세그먼트 (`Single` · `Multi` · `Rank`)
-- [ ] **Single 탭**
-  - [ ] 혼자 풀기 + 난이도 선택(Phase 1 결과 사용)
-  - [ ] 튜토리얼 진입 버튼 (Phase 4로 연결)
-  - [ ] 챌린지 진입 버튼 (Phase 7로 연결)
-- [ ] **Multi 탭**
-  - [ ] 닉네임 입력
-  - [ ] 방 만들기 버튼
-  - [ ] 방 코드 입력 + 입장 버튼
-  - [ ] (기존 `home_screen`의 멀티 로직 이전/정리)
-- [ ] **Rank 탭** (Phase 6으로 연결)
-  - [ ] 내 랭크/점수 표시 + "랭크 매치 시작" 버튼
-- [ ] `home_screen.dart` 리팩토링 (모드별 위젯 분리, 상태 보존)
+- [x] 상단 Mode 탭/세그먼트 (`Single` · `Multi` · `Rank`) — `HomeMode` enum + `SegmentedButton`(`_ModeSelector`)
+- [x] **Single 탭** (`_SinglePane`)
+  - [x] 혼자 풀기 + 난이도 선택(Phase 1 `DifficultySelector` 재사용)
+  - [x] 튜토리얼 진입 버튼 — "준비 중" 타일(`_ComingSoonTile`), Phase 4 연결 자리
+  - [x] 챌린지 진입 버튼 — "준비 중" 타일, Phase 7 연결 자리
+- [x] **Multi 탭** (`_MultiPane`)
+  - [x] 닉네임 입력
+  - [x] 방 만들기 버튼
+  - [x] 방 코드 입력 + 입장 버튼
+  - [x] (기존 `home_screen`의 멀티 로직 이전/정리 — `_createRoom`/`_joinRoom` 그대로 재사용)
+- [x] **Rank 탭** (`_RankPane`, Phase 6으로 연결) — "준비 중" placeholder 카드 + `랭크 매치 시작`(안내 스낵바)
+- [x] `home_screen.dart` 리팩토링 (모드별 위젯 분리, 상태 보존)
+  - 상태 보존: 닉네임/코드 컨트롤러·`_mode`는 `_HomeScreenState`에, 난이도는 provider에 유지 → 탭 전환에도 보존
+- [x] **반응형 UI**: `Center`+`ConstrainedBox(maxWidth:480)` 폭 제한, 좁은(`<360`)·낮은(`<640`) 화면 패딩/여백/폰트 축소, 전체 `SingleChildScrollView`로 세로 잘림 방지, 타이틀 `FittedBox(scaleDown)`로 가로 잘림 방지, 좁은 세그먼트(`<300`)는 라벨 숨김
 
-**의존성**: Rank 탭 내용은 Phase 5(프로필)·Phase 6 완료 후 채워짐. 먼저 UI 골격만 잡고 Rank는 "준비 중" 처리 가능.
+**의존성**: Rank 탭 내용은 Phase 5(프로필)·Phase 6 완료 후 채워짐. 현재는 UI 골격만 잡고 Rank·튜토리얼·챌린지는 "준비 중" 처리.
 
 ---
 
-## 💡 Phase 3 — 아이템 설명 페이지 🟢 (독립적, 작은 작업)
+## 💡 Phase 3 — 아이템 설명 페이지 + 하단 탭 네비게이션 🟢 (완료)
 
-> 7종 아이템의 효과를 한눈에 보는 도감/설명 페이지.
+> 7종 아이템의 효과를 한눈에 보는 도감/설명 페이지. **완료 (2026-06-02)**
+> 진입점은 사용자 요청에 따라 **하단 탭(메인 / 아이템 설명 / 나)** 으로 구성.
 
-- [ ] 아이템 가이드 화면 신설 (홈 및 게임 화면에서 진입 — 예: 아이템 슬롯 옆 ❔ 버튼)
-- [ ] 항목별 표시: 이모지 · 이름 · 대상(자신/상대/즉시) · 효과 설명 · 지속시간
-  - `item_model.dart`의 `ItemType`(emoji/name/targetsOpponent) 재사용, **효과 설명 텍스트만 추가 정의** 필요
-- [ ] 자신용/상대용/즉시발동(미스터리) 그룹으로 구분 표시
-- [ ] (선택) 튜토리얼(Phase 4)·로비에서도 동일 컴포넌트 재사용
+### 하단 네비게이션 도입
+- [x] `RootScreen`(`lib/presentation/screens/root_screen.dart`) 신설 — `NavigationBar`(M3) + `IndexedStack`로 탭 상태(스크롤·입력) 보존
+  - 탭: **메인**(`HomeScreen`) · **아이템 설명**(`ItemGuideScreen`) · **나**(`ProfileScreen`)
+- [x] `main.dart` 진입점을 `HomeScreen` → `RootScreen`으로 교체 (로비/게임은 각 탭에서 기존처럼 `Navigator.push`로 위에 쌓임)
 
-**의존성**: 없음. 기존 `ItemType` 확장만으로 구현 가능해 가장 먼저 착수 가능.
+### 아이템 설명 페이지
+- [x] 아이템 가이드 화면 신설 (`item_guide_screen.dart`) — 하단 탭 "아이템 설명"으로 진입
+- [x] 항목별 표시: 이모지 · 이름 · 효과 설명 · 지속시간(뱃지)
+  - `item_model.dart`의 `ItemType`(emoji/name) 재사용 + **`description`/`durationLabel`/`target`(`ItemTarget` enum) 추가 정의**
+  - 지속시간 라벨은 게임 로직 값 기준: blind=30초, freeze=5초, shield=1회 방어, 나머지=즉시
+- [x] 자신용(`나에게`)/상대용(`상대에게`)/즉시발동(`즉시 발동`, 미스터리) 그룹으로 구분 표시
+- [x] 본문을 `ItemGuideList` 위젯으로 분리 → 튜토리얼(Phase 4)·로비에서 재사용 가능
+
+### '나' 탭 (Phase 5/8 연결 전 골격)
+- [x] `ProfileScreen` 신설 — 게스트 헤더 + 메뉴(통계/어워드/설정/도움말) "준비 중" 처리
+  - 실제 데이터(전적·승률·트로피·랭크점수)는 Phase 5(프로필) 이후 채움
+
+**의존성**: 없음. 기존 `ItemType` 확장만으로 구현. '나' 탭의 통계/어워드는 Phase 5(영구 사용자 식별) 선행 필요.
 
 ---
 

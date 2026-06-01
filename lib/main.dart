@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'domain/providers/room_provider.dart';
-import 'presentation/screens/home_screen.dart';
+import 'presentation/screens/root_screen.dart';
 
 const _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
 const _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
@@ -87,7 +87,7 @@ class _OnlineSudokuAppState extends ConsumerState<OnlineSudokuApp>
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
-      home: const HomeScreen(),
+      home: const RootScreen(),
     );
   }
 }

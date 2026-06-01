@@ -8,6 +8,18 @@ enum ItemType {
   mystery, // ❓ 즉시: 랜덤 효과 발동 (자신/상대, 좋음/나쁨)
 }
 
+/// 아이템 사용 대상 분류 (아이템 설명 페이지의 그룹 구분에 사용).
+enum ItemTarget {
+  self('나에게', '내 풀이를 돕는 아이템'),
+  opponent('상대에게', '상대를 방해하는 아이템'),
+  instant('즉시 발동', '쓰는 순간 효과가 결정되는 아이템');
+
+  const ItemTarget(this.labelKo, this.descriptionKo);
+
+  final String labelKo;
+  final String descriptionKo;
+}
+
 extension ItemTypeX on ItemType {
   String get emoji {
     switch (this) {
@@ -30,6 +42,49 @@ extension ItemTypeX on ItemType {
       case ItemType.shield:  return '방어막';
       case ItemType.reverse: return '리버스';
       case ItemType.mystery: return '미스터리';
+    }
+  }
+
+  /// 아이템 설명 페이지에서의 그룹(나에게 / 상대에게 / 즉시 발동) 분류.
+  ItemTarget get target {
+    switch (this) {
+      case ItemType.hint:
+      case ItemType.shield:
+        return ItemTarget.self;
+      case ItemType.blind:
+      case ItemType.freeze:
+      case ItemType.itemCut:
+      case ItemType.reverse:
+        return ItemTarget.opponent;
+      case ItemType.mystery:
+        return ItemTarget.instant;
+    }
+  }
+
+  /// 효과 설명 텍스트 (아이템 설명/도감 페이지에서 사용).
+  String get description {
+    switch (this) {
+      case ItemType.hint:    return '선택한 빈 칸 하나를 정답으로 채워줍니다.';
+      case ItemType.blind:   return '상대 보드의 3×3 박스 하나를 일정 시간 가립니다.';
+      case ItemType.freeze:  return '상대의 숫자 입력을 일정 시간 잠급니다.';
+      case ItemType.itemCut: return '상대가 가진 아이템 1개를 제거합니다.';
+      case ItemType.shield:  return '다음에 날아오는 상대 아이템 1개를 막아냅니다.';
+      case ItemType.reverse: return '상대가 맞게 채운 칸 하나를 다시 비웁니다.';
+      case ItemType.mystery: return '랜덤 효과가 즉시 발동됩니다. 행운일 수도, 불운일 수도!';
+    }
+  }
+
+  /// 효과 지속 시간 라벨 (아이템 설명 페이지에서 사용).
+  String get durationLabel {
+    switch (this) {
+      case ItemType.blind:   return '30초 지속';
+      case ItemType.freeze:  return '5초 지속';
+      case ItemType.shield:  return '1회 방어';
+      case ItemType.hint:
+      case ItemType.itemCut:
+      case ItemType.reverse:
+      case ItemType.mystery:
+        return '즉시 발동';
     }
   }
 
