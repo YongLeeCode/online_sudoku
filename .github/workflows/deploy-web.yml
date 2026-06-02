@@ -1,0 +1,59 @@
+name: Deploy Web to GitHub Pages
+
+# online_sudoku 웹 빌드를 GitHub Pages 로 자동 배포합니다.
+# 사전 준비(한 번만):
+#   1) 저장소 Settings → Pages → Build and deployment → Source: "GitHub Actions"
+#   2) 저장소 Settings → Secrets and variables → Actions → New repository secret
+#        - SUPABASE_URL
+#        - SUPABASE_ANON_KEY
+# 배포 URL: https://yongleecode.github.io/online_sudoku/
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 동시 배포 1개로 제한
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.2'
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build web
+        run: |
+          flutter build web --release \
+            --base-href "/online_sudoku/" \
+            --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
+            --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
