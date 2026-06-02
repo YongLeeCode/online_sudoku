@@ -17,6 +17,23 @@ class RoomSettingsModel {
     this.hintCounts = const {},
   });
 
+  RoomSettingsModel copyWith({
+    Difficulty? difficulty,
+    int? penaltySeconds,
+    int? maxItemCount,
+    List<String>? allowedItems,
+    Map<String, int>? hintCounts,
+  }) {
+    return RoomSettingsModel(
+      roomId: roomId,
+      difficulty: difficulty ?? this.difficulty,
+      penaltySeconds: penaltySeconds ?? this.penaltySeconds,
+      maxItemCount: maxItemCount ?? this.maxItemCount,
+      allowedItems: allowedItems ?? this.allowedItems,
+      hintCounts: hintCounts ?? this.hintCounts,
+    );
+  }
+
   factory RoomSettingsModel.fromJson(Map<String, dynamic> json) {
     return RoomSettingsModel(
       roomId: json['room_id'] as String,

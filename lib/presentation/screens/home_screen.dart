@@ -5,9 +5,11 @@ import 'package:gap/gap.dart';
 import '../../core/constants/difficulty.dart';
 import '../../domain/providers/game_provider.dart';
 import '../../domain/providers/room_provider.dart';
+import '../../domain/providers/tutorial_provider.dart';
 import '../widgets/difficulty_selector.dart';
 import 'game_screen.dart';
 import 'lobby_screen.dart';
+import 'tutorial_menu_screen.dart';
 
 /// 홈 화면 상단 모드 탭.
 enum HomeMode {
@@ -137,6 +139,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  void _startTutorial() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const TutorialMenuScreen()),
+    );
+  }
+
   void _showComingSoon(String feature) {
     _showSnackBar('$feature 기능은 준비 중이에요. 곧 만나요!');
   }
@@ -214,6 +222,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         return _SinglePane(
           key: const ValueKey(HomeMode.single),
           onStart: _startSingleGame,
+          onTutorial: _startTutorial,
           onComingSoon: _showComingSoon,
         );
       case HomeMode.multi:
@@ -309,11 +318,13 @@ class _ModeSelector extends StatelessWidget {
 /// 싱글 모드 패널.
 class _SinglePane extends ConsumerWidget {
   final ValueChanged<Difficulty> onStart;
+  final VoidCallback onTutorial;
   final ValueChanged<String> onComingSoon;
 
   const _SinglePane({
     super.key,
     required this.onStart,
+    required this.onTutorial,
     required this.onComingSoon,
   });
 
@@ -366,13 +377,8 @@ class _SinglePane extends ConsumerWidget {
         ),
         const Gap(20),
 
-        // 준비 중 진입점 (Phase 4 / Phase 7 연결 예정)
-        _ComingSoonTile(
-          icon: Icons.school_outlined,
-          title: '튜토리얼',
-          subtitle: '규칙과 조작을 단계별로 배우기',
-          onTap: () => onComingSoon('튜토리얼'),
-        ),
+        // 튜토리얼 (Phase 4) — 완료 여부 배지 표시
+        _TutorialTile(onTap: onTutorial),
         const Gap(12),
         _ComingSoonTile(
           icon: Icons.workspace_premium_outlined,
@@ -618,6 +624,107 @@ class _SoonBadge extends StatelessWidget {
           fontWeight: FontWeight.w700,
           color: colorScheme.onPrimaryContainer,
         ),
+      ),
+    );
+  }
+}
+
+/// 튜토리얼 진입 타일 (완료 여부 배지 포함).
+class _TutorialTile extends ConsumerWidget {
+  final VoidCallback onTap;
+  const _TutorialTile({required this.onTap});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final done = ref.watch(tutorialCompletedProvider);
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Material(
+      color: colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          child: Row(
+            children: [
+              Icon(Icons.school_outlined, color: colorScheme.primary),
+              const Gap(14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            '튜토리얼',
+                            overflow: TextOverflow.ellipsis,
+                            style: textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        const Gap(8),
+                        _TutorialBadge(done: done),
+                      ],
+                    ),
+                    const Gap(2),
+                    Text(
+                      '규칙과 아이템 사용법을 단계별로 배우기',
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodySmall
+                          ?.copyWith(color: colorScheme.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+              const Gap(4),
+              Icon(Icons.chevron_right, color: colorScheme.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 튜토리얼 완료/추천 배지.
+class _TutorialBadge extends StatelessWidget {
+  final bool done;
+  const _TutorialBadge({required this.done});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final bg = done
+        ? Colors.green.withValues(alpha: 0.15)
+        : colorScheme.primaryContainer;
+    final fg = done ? Colors.green.shade700 : colorScheme.onPrimaryContainer;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (done) ...[
+            Icon(Icons.check, size: 12, color: fg),
+            const SizedBox(width: 2),
+          ],
+          Text(
+            done ? '완료' : '추천',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: fg,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -65,11 +65,11 @@ extension ItemTypeX on ItemType {
   String get description {
     switch (this) {
       case ItemType.hint:    return '선택한 빈 칸 하나를 정답으로 채워줍니다.';
-      case ItemType.blind:   return '상대 보드의 3×3 박스 하나를 일정 시간 가립니다.';
-      case ItemType.freeze:  return '상대의 숫자 입력을 일정 시간 잠급니다.';
-      case ItemType.itemCut: return '상대가 가진 아이템 1개를 제거합니다.';
-      case ItemType.shield:  return '다음에 날아오는 상대 아이템 1개를 막아냅니다.';
-      case ItemType.reverse: return '상대가 맞게 채운 칸 하나를 다시 비웁니다.';
+      case ItemType.blind:   return '상대 보드의 3×3 박스 하나를 일정 시간 가립니다. (3초 경고 후 발동 · 실드로 방어 가능)';
+      case ItemType.freeze:  return '상대의 숫자 입력을 일정 시간 잠급니다. (3초 경고 후 발동 · 실드로 방어 가능)';
+      case ItemType.itemCut: return '상대가 가진 아이템 1개를 제거합니다. (3초 경고 후 발동 · 실드로 방어 가능)';
+      case ItemType.shield:  return '3초간 유지되며 그 사이 날아온 상대 아이템 1개를 막아냅니다.';
+      case ItemType.reverse: return '상대가 맞게 채운 칸 하나를 다시 비웁니다. (3초 경고 후 발동 · 실드로 방어 가능)';
       case ItemType.mystery: return '랜덤 효과가 즉시 발동됩니다. 행운일 수도, 불운일 수도!';
     }
   }
@@ -79,7 +79,7 @@ extension ItemTypeX on ItemType {
     switch (this) {
       case ItemType.blind:   return '30초 지속';
       case ItemType.freeze:  return '5초 지속';
-      case ItemType.shield:  return '1회 방어';
+      case ItemType.shield:  return '3초 · 1회';
       case ItemType.hint:
       case ItemType.itemCut:
       case ItemType.reverse:

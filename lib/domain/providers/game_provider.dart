@@ -44,6 +44,7 @@ class GameState {
   final bool isFrozen;                 // 프리즈 효과 중
   final int freezeRemaining;           // 프리즈 남은 초
   final bool isShielded;               // 방어막 활성
+  final int shieldRemaining;           // 방어막 남은 초 (0이면 해제)
 
   const GameState({
     required this.puzzle,
@@ -67,6 +68,7 @@ class GameState {
     this.isFrozen = false,
     this.freezeRemaining = 0,
     this.isShielded = false,
+    this.shieldRemaining = 0,
   });
 
   double get progress => totalBlanks == 0 ? 0 : filledCount / totalBlanks;
@@ -119,6 +121,7 @@ class GameState {
     bool? isFrozen,
     int? freezeRemaining,
     bool? isShielded,
+    int? shieldRemaining,
   }) {
     return GameState(
       puzzle: puzzle,
@@ -144,6 +147,7 @@ class GameState {
       isFrozen: isFrozen ?? this.isFrozen,
       freezeRemaining: freezeRemaining ?? this.freezeRemaining,
       isShielded: isShielded ?? this.isShielded,
+      shieldRemaining: shieldRemaining ?? this.shieldRemaining,
     );
   }
 }
@@ -211,6 +215,57 @@ class GameNotifier extends StateNotifier<GameState?> {
       itemPool: pool,
       myItems: List.filled(4, null),
     );
+  }
+
+  /// 튜토리얼 전용: 스크립트된 보드를 직접 주입한다.
+  ///
+  /// [solution]은 완성된 9×9 정답이고, [blanks]에 지정한 칸만 사용자가 채울 수
+  /// 있는 빈 칸이 된다(나머지는 모두 고정 칸 → 입력이 자연스럽게 차단됨).
+  /// [prefilled]로 일부 빈 칸을 미리 채워둘 수 있다(리버스 데모 등).
+  void loadScriptedBoard({
+    required List<List<int>> solution,
+    required Set<(int, int)> blanks,
+    Map<(int, int), int> prefilled = const {},
+    Set<(int, int)> itemCells = const {},
+    List<ItemType> itemPool = const [],
+    List<ItemType?>? myItems,
+    int penaltySeconds = 5,
+  }) {
+    final puzzle = List.generate(
+      9,
+      (r) =>
+          List.generate(9, (c) => blanks.contains((r, c)) ? 0 : solution[r][c]),
+    );
+    final current = puzzle.map((row) => List<int>.from(row)).toList();
+    prefilled.forEach((pos, value) {
+      current[pos.$1][pos.$2] = value;
+    });
+
+    var filled = 0;
+    for (final (r, c) in blanks) {
+      if (current[r][c] != 0) filled++;
+    }
+
+    state = GameState(
+      puzzle: puzzle,
+      current: current,
+      solution: solution,
+      notes: _emptyNotes(),
+      totalBlanks: blanks.length,
+      filledCount: filled,
+      errorCells: {},
+      isCompleted: false,
+      startedAt: DateTime.now(),
+      penaltySeconds: penaltySeconds,
+      itemCells: itemCells,
+      itemPool: itemPool,
+      myItems: myItems ?? List.filled(4, null),
+    );
+  }
+
+  /// 게임 상태 초기화 (튜토리얼 종료 시 등).
+  void clear() {
+    state = null;
   }
 
   // ────────────────────────────────────────────────
@@ -458,22 +513,31 @@ class GameNotifier extends StateNotifier<GameState?> {
         : s.copyWith(freezeRemaining: remaining);
   }
 
+  void shieldTick() {
+    final s = state;
+    if (s == null || !s.isShielded) return;
+    final remaining = s.shieldRemaining - 1;
+    state = remaining <= 0
+        ? s.copyWith(isShielded: false, shieldRemaining: 0)
+        : s.copyWith(shieldRemaining: remaining);
+  }
+
   // ────────────────────────────────────────────────
   //  신규 아이템 효과
   // ────────────────────────────────────────────────
 
-  /// 🛡️ 방어막 적용 (자신이 사용)
+  /// 🛡️ 방어막 적용 (자신이 사용) — 3초간 지속, 그 사이 날아온 공격 1개 방어
   void applyShield() {
     final s = state;
     if (s == null) return;
-    state = s.copyWith(isShielded: true);
+    state = s.copyWith(isShielded: true, shieldRemaining: 3);
   }
 
   /// 🛡️ 방어막 소모 (적 아이템 차단 시)
   void consumeShield() {
     final s = state;
     if (s == null) return;
-    state = s.copyWith(isShielded: false);
+    state = s.copyWith(isShielded: false, shieldRemaining: 0);
   }
 
   /// 💥 리버스: 맞게 채운 칸 하나를 랜덤으로 지움 (상대가 나에게 사용)

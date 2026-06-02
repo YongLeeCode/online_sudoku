@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 
+import '../../../data/models/item_model.dart';
 import '../../../data/models/room_settings_model.dart';
 import '../difficulty_selector.dart';
 
@@ -38,14 +39,8 @@ class SettingsPanel extends StatelessWidget {
                       child: DifficultySelector(
                         value: settings.difficulty,
                         onChanged: (d) {
-                          onSettingsChanged?.call(RoomSettingsModel(
-                            roomId: settings.roomId,
-                            difficulty: d,
-                            penaltySeconds: settings.penaltySeconds,
-                            maxItemCount: settings.maxItemCount,
-                            allowedItems: settings.allowedItems,
-                            hintCounts: settings.hintCounts,
-                          ));
+                          onSettingsChanged
+                              ?.call(settings.copyWith(difficulty: d));
                         },
                       ),
                     )
@@ -68,14 +63,8 @@ class SettingsPanel extends StatelessWidget {
                         max: 15,
                         divisions: 14,
                         onChanged: (v) {
-                          onSettingsChanged?.call(RoomSettingsModel(
-                            roomId: settings.roomId,
-                            difficulty: settings.difficulty,
-                            penaltySeconds: v.round(),
-                            maxItemCount: settings.maxItemCount,
-                            allowedItems: settings.allowedItems,
-                            hintCounts: settings.hintCounts,
-                          ));
+                          onSettingsChanged?.call(
+                              settings.copyWith(penaltySeconds: v.round()));
                         },
                       ),
                     )
@@ -98,18 +87,20 @@ class SettingsPanel extends StatelessWidget {
                         max: 15,
                         divisions: 15,
                         onChanged: (v) {
-                          onSettingsChanged?.call(RoomSettingsModel(
-                            roomId: settings.roomId,
-                            difficulty: settings.difficulty,
-                            penaltySeconds: settings.penaltySeconds,
-                            maxItemCount: v.round(),
-                            allowedItems: settings.allowedItems,
-                            hintCounts: settings.hintCounts,
-                          ));
+                          onSettingsChanged?.call(
+                              settings.copyWith(maxItemCount: v.round()));
                         },
                       ),
                     )
                   : null,
+            ),
+            const Divider(height: 24),
+
+            // 사용 아이템 (방장이 종류 선택)
+            _ItemSelector(
+              settings: settings,
+              isHost: isHost,
+              onSettingsChanged: onSettingsChanged,
             ),
           ],
         ),
@@ -117,6 +108,85 @@ class SettingsPanel extends StatelessWidget {
     );
   }
 
+}
+
+/// 방장이 게임에 등장할 아이템 종류를 체크박스(FilterChip)로 고르는 섹션.
+/// 참여자는 읽기 전용으로 허용 여부만 본다.
+class _ItemSelector extends StatelessWidget {
+  final RoomSettingsModel settings;
+  final bool isHost;
+  final ValueChanged<RoomSettingsModel>? onSettingsChanged;
+
+  const _ItemSelector({
+    required this.settings,
+    required this.isHost,
+    this.onSettingsChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final allowed = settings.allowedItems.toSet();
+
+    void toggle(String dbKey, bool selected) {
+      final next = settings.allowedItems.toList();
+      if (selected) {
+        if (!next.contains(dbKey)) next.add(dbKey);
+      } else {
+        next.remove(dbKey);
+      }
+      onSettingsChanged?.call(settings.copyWith(allowedItems: next));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.style, size: 20, color: colorScheme.primary),
+            const Gap(8),
+            const Text('사용 아이템', style: TextStyle(fontSize: 15)),
+            const Spacer(),
+            Text(
+              '${allowed.length}/${ItemType.values.length}종',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: colorScheme.primary,
+              ),
+            ),
+          ],
+        ),
+        const Gap(8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: ItemType.values.map((item) {
+            final isOn = allowed.contains(item.dbKey);
+            return FilterChip(
+              label: Text('${item.emoji} ${item.name}'),
+              selected: isOn,
+              onSelected:
+                  isHost ? (sel) => toggle(item.dbKey, sel) : null,
+              showCheckmark: true,
+              visualDensity: VisualDensity.compact,
+            );
+          }).toList(),
+        ),
+        if (allowed.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              '아이템을 모두 끄면 아이템 없이 진행돼요.',
+              style: TextStyle(
+                fontSize: 12,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
 class _SettingRow extends StatelessWidget {

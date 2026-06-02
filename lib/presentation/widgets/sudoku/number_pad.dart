@@ -4,7 +4,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../domain/providers/game_provider.dart';
 
 class NumberPad extends ConsumerWidget {
-  const NumberPad({super.key});
+  /// 입력 가능한 숫자 제한(튜토리얼 전용).
+  ///
+  /// null이면 기존 동작(완성된 숫자만 비활성). 값이 주어지면 이 집합에 포함된
+  /// 숫자 버튼만 활성화되고, "완성된 숫자" 비활성 규칙은 무시한다.
+  final Set<int>? allowedNumbers;
+
+  /// 입력 모드 잠금(튜토리얼 전용).
+  ///
+  /// true이면 메모 토글 버튼과 지우기 버튼을 비활성화한다(현재 메모 상태 고정).
+  final bool lockInputMode;
+
+  const NumberPad({
+    super.key,
+    this.allowedNumbers,
+    this.lockInputMode = false,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -12,6 +27,12 @@ class NumberPad extends ConsumerWidget {
     final game = ref.watch(gameProvider);
     final numberCounts = game?.numberCounts ?? {};
     final isMemoMode = ref.watch(memoModeProvider);
+
+    bool isEnabled(int number) {
+      if (allowedNumbers != null) return allowedNumbers!.contains(number);
+      if (isMemoMode) return true;
+      return (numberCounts[number] ?? 0) < 9;
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -23,7 +44,9 @@ class NumberPad extends ConsumerWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                _buildMemoToggleButton(context, ref, isMemoMode, colorScheme),
+                _buildMemoToggleButton(
+                  context, ref, isMemoMode, !lockInputMode, colorScheme,
+                ),
               ],
             ),
           ),
@@ -31,10 +54,8 @@ class NumberPad extends ConsumerWidget {
           Row(
             children: List.generate(5, (i) {
               final number = i + 1;
-              final isCompleted =
-                  !isMemoMode && (numberCounts[number] ?? 0) >= 9;
               return _buildNumberButton(
-                context, ref, number, isCompleted, isMemoMode, colorScheme,
+                context, ref, number, isEnabled(number), isMemoMode, colorScheme,
               );
             }),
           ),
@@ -44,10 +65,8 @@ class NumberPad extends ConsumerWidget {
             children: [
               ...List.generate(4, (i) {
                 final number = i + 6;
-                final isCompleted =
-                    !isMemoMode && (numberCounts[number] ?? 0) >= 9;
                 return _buildNumberButton(
-                  context, ref, number, isCompleted, isMemoMode, colorScheme,
+                  context, ref, number, isEnabled(number), isMemoMode, colorScheme,
                 );
               }),
               // 지우기 버튼
@@ -57,8 +76,9 @@ class NumberPad extends ConsumerWidget {
                   child: SizedBox(
                     height: 56,
                     child: MaterialButton(
-                      onPressed: () => _onErase(ref),
+                      onPressed: lockInputMode ? null : () => _onErase(ref),
                       color: colorScheme.errorContainer,
+                      disabledColor: colorScheme.surfaceContainerHighest,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
@@ -66,7 +86,9 @@ class NumberPad extends ConsumerWidget {
                       padding: EdgeInsets.zero,
                       child: Icon(
                         Icons.backspace_outlined,
-                        color: colorScheme.onErrorContainer,
+                        color: lockInputMode
+                            ? colorScheme.outlineVariant
+                            : colorScheme.onErrorContainer,
                         size: 24,
                       ),
                     ),
@@ -84,12 +106,13 @@ class NumberPad extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     bool isMemoMode,
+    bool enabled,
     ColorScheme colorScheme,
   ) {
     return GestureDetector(
-      onTap: () {
-        ref.read(memoModeProvider.notifier).state = !isMemoMode;
-      },
+      onTap: enabled
+          ? () => ref.read(memoModeProvider.notifier).state = !isMemoMode
+          : null,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -99,28 +122,31 @@ class NumberPad extends ConsumerWidget {
               : colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.edit_outlined,
-              size: 16,
-              color: isMemoMode
-                  ? colorScheme.onSecondary
-                  : colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              '메모',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+        child: Opacity(
+          opacity: enabled ? 1.0 : 0.6,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.edit_outlined,
+                size: 16,
                 color: isMemoMode
                     ? colorScheme.onSecondary
                     : colorScheme.onSurfaceVariant,
               ),
-            ),
-          ],
+              const SizedBox(width: 4),
+              Text(
+                '메모',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: isMemoMode
+                      ? colorScheme.onSecondary
+                      : colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -130,13 +156,13 @@ class NumberPad extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     int number,
-    bool isCompleted,
+    bool enabled,
     bool isMemoMode,
     ColorScheme colorScheme,
   ) {
     Color buttonColor;
     Color textColor;
-    if (isCompleted) {
+    if (!enabled) {
       buttonColor = colorScheme.surfaceContainerHighest;
       textColor = colorScheme.outlineVariant;
     } else if (isMemoMode) {
@@ -153,7 +179,7 @@ class NumberPad extends ConsumerWidget {
         child: SizedBox(
           height: 56,
           child: MaterialButton(
-            onPressed: isCompleted ? null : () => _onNumberTap(ref, number),
+            onPressed: enabled ? () => _onNumberTap(ref, number) : null,
             color: buttonColor,
             disabledColor: colorScheme.surfaceContainerHighest,
             elevation: 0,
@@ -161,7 +187,7 @@ class NumberPad extends ConsumerWidget {
               borderRadius: BorderRadius.circular(10),
             ),
             padding: EdgeInsets.zero,
-            child: isMemoMode && !isCompleted
+            child: isMemoMode && enabled
                 ? Stack(
                     alignment: Alignment.center,
                     children: [
@@ -189,7 +215,7 @@ class NumberPad extends ConsumerWidget {
                     style: TextStyle(
                       fontSize: 26,
                       fontWeight: FontWeight.w600,
-                      color: isCompleted ? colorScheme.outlineVariant : textColor,
+                      color: textColor,
                     ),
                   ),
           ),

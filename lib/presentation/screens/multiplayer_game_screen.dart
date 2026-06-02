@@ -29,11 +29,17 @@ class _MultiplayerGameScreenState
   Timer? _penaltyTimer;
   Timer? _blindTimer;
   Timer? _freezeTimer;
+  Timer? _shieldTimer;
   Timer? _overtimeTimer;
   Timer? _itemEventTimer;
 
   Duration _elapsed = Duration.zero;
   bool _gameEnded = false;
+
+  // 공격 경고: 공격자 playerId → 깜빡일 아이템 이모지 (1초 동안 표시)
+  final Map<String, String> _incomingAttacks = {};
+  // 착탄 대기 중인 공격 타이머들 (dispose 시 정리)
+  final List<Timer> _pendingAttackTimers = [];
 
   // 아이템 이벤트 중복 처리 방지
   final Set<String> _processedEventIds = {};
@@ -53,9 +59,17 @@ class _MultiplayerGameScreenState
   // 플레이어 게이지 GlobalKey (비행 애니메이션용)
   final Map<String, GlobalKey> _gaugeKeys = {};
 
+  // dispose 시점엔 `ref`가 이미 해제돼 사용할 수 없으므로, 정리에 필요한
+  // notifier 참조를 initState에서 미리 잡아둔다.
+  late final GameNotifier _gameNotifier;
+  late final StateController<bool> _memoModeNotifier;
+
   @override
   void initState() {
     super.initState();
+
+    _gameNotifier = ref.read(gameProvider.notifier);
+    _memoModeNotifier = ref.read(memoModeProvider.notifier);
 
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
@@ -67,7 +81,7 @@ class _MultiplayerGameScreenState
       }
     });
 
-    final gameNotifier = ref.read(gameProvider.notifier);
+    final gameNotifier = _gameNotifier;
     gameNotifier.onProgressChanged = _onProgressChanged;
     gameNotifier.onItemCollected = (item) {
       if (mounted) _showNotif('${item.emoji} ${item.name} 획득!', Colors.indigo);
@@ -86,12 +100,16 @@ class _MultiplayerGameScreenState
     _penaltyTimer?.cancel();
     _blindTimer?.cancel();
     _freezeTimer?.cancel();
+    _shieldTimer?.cancel();
     _overtimeTimer?.cancel();
     _itemEventTimer?.cancel();
+    for (final t in _pendingAttackTimers) {
+      t.cancel();
+    }
     _notifTimer?.cancel();
-    ref.read(gameProvider.notifier).onProgressChanged = null;
-    ref.read(gameProvider.notifier).onItemCollected = null;
-    ref.read(memoModeProvider.notifier).state = false;
+    _gameNotifier.onProgressChanged = null;
+    _gameNotifier.onItemCollected = null;
+    _memoModeNotifier.state = false;
     super.dispose();
   }
 
@@ -135,59 +153,87 @@ class _MultiplayerGameScreenState
     if (itemType == null) return;
 
     final duration = (payload['duration'] as num?)?.toInt() ?? 5;
+    final immediate = payload['immediate'] == true;
     final senderId = event['player_id'] as String? ?? '';
-    final myId = ref.read(currentPlayerProvider)?.id ?? '';
 
+    // 공격 아이템(blind/freeze/itemCut/reverse)은 3초 경고 후 착탄한다.
+    // 공격자 게이지에서 아이템 이모지가 깜빡이고, 3초 뒤 내 게이지로 날아온다.
+    // 단, 미스터리에서 보낸 즉시발동 이벤트(immediate)는 경고 없이 바로 처리.
+    if (!immediate && itemType.targetsOpponent) {
+      _telegraphAttack(senderId, itemType, duration);
+      return;
+    }
+
+    final myId = ref.read(currentPlayerProvider)?.id ?? '';
     if (senderId.isNotEmpty && myId.isNotEmpty) {
       _startFlyAnim(itemType.emoji, senderId, myId);
     }
+    _landAttack(itemType, duration);
+  }
 
+  /// 공격 경고: 공격자 게이지에 이모지를 3초간 깜빡인 뒤, 비행 애니메이션과
+  /// 함께 효과를 착탄시킨다. 이 3초가 방어(실드) 반응 창이 된다.
+  void _telegraphAttack(String senderId, ItemType itemType, int duration) {
+    if (!mounted) return;
+    if (senderId.isNotEmpty) {
+      setState(() => _incomingAttacks[senderId] = itemType.emoji);
+    }
+    late Timer t;
+    t = Timer(const Duration(seconds: 3), () {
+      _pendingAttackTimers.remove(t);
+      if (!mounted) return;
+      setState(() => _incomingAttacks.remove(senderId));
+      final myId = ref.read(currentPlayerProvider)?.id ?? '';
+      if (senderId.isNotEmpty && myId.isNotEmpty) {
+        _startFlyAnim(itemType.emoji, senderId, myId);
+      }
+      _landAttack(itemType, duration);
+    });
+    _pendingAttackTimers.add(t);
+  }
+
+  /// 효과 착탄. 이 시점에 실드가 활성이면 1개 소모하며 차단한다.
+  void _landAttack(ItemType itemType, int duration) {
+    if (!mounted) return;
+    final notifier = ref.read(gameProvider.notifier);
     switch (itemType) {
       case ItemType.blind:
-        final shielded = ref.read(gameProvider)?.isShielded ?? false;
-        if (shielded) {
-          ref.read(gameProvider.notifier).consumeShield();
-          if (mounted) _showNotif('🛡️ 방어막이 블라인드를 막았습니다!', Colors.green);
+        if (ref.read(gameProvider)?.isShielded ?? false) {
+          notifier.consumeShield();
+          _showNotif('🛡️ 방어막이 블라인드를 막았습니다!', Colors.green);
         } else {
-          ref.read(gameProvider.notifier).applyBlind(duration);
+          notifier.applyBlind(duration);
           _startBlindCountdown();
-          if (mounted) {
-            final boxNum = (ref.read(gameProvider)?.blindedBoxIndex ?? 0) + 1;
-            _showNotif('🌫️ $boxNum번 박스 블라인드! ($duration초)', Colors.deepPurple);
-          }
+          final boxNum = (ref.read(gameProvider)?.blindedBoxIndex ?? 0) + 1;
+          _showNotif('🌫️ $boxNum번 박스 블라인드! ($duration초)', Colors.deepPurple);
         }
       case ItemType.freeze:
-        final shielded = ref.read(gameProvider)?.isShielded ?? false;
-        if (shielded) {
-          ref.read(gameProvider.notifier).consumeShield();
-          if (mounted) _showNotif('🛡️ 방어막이 프리즈를 막았습니다!', Colors.green);
+        if (ref.read(gameProvider)?.isShielded ?? false) {
+          notifier.consumeShield();
+          _showNotif('🛡️ 방어막이 프리즈를 막았습니다!', Colors.green);
         } else {
-          ref.read(gameProvider.notifier).applyFreeze(duration);
+          notifier.applyFreeze(duration);
           _startFreezeCountdown();
-          if (mounted) _showNotif('⏸️ 프리즈 당했습니다!', Colors.indigo);
+          _showNotif('⏸️ 프리즈 당했습니다!', Colors.indigo);
         }
       case ItemType.itemCut:
-        final shielded = ref.read(gameProvider)?.isShielded ?? false;
-        if (shielded) {
-          ref.read(gameProvider.notifier).consumeShield();
-          if (mounted) _showNotif('🛡️ 방어막이 아이템 커터를 막았습니다!', Colors.green);
+        if (ref.read(gameProvider)?.isShielded ?? false) {
+          notifier.consumeShield();
+          _showNotif('🛡️ 방어막이 아이템 커터를 막았습니다!', Colors.green);
         } else {
-          final removed = ref.read(gameProvider.notifier).removeFirstItem();
-          if (mounted) {
-            final msg = removed != null
-                ? '✂️ ${removed.emoji} ${removed.name}이(가) 제거됐습니다!'
-                : '✂️ 아이템 커터! 제거할 아이템이 없었습니다.';
-            _showNotif(msg, Colors.deepOrange);
-          }
+          final removed = notifier.removeFirstItem();
+          final msg = removed != null
+              ? '✂️ ${removed.emoji} ${removed.name}이(가) 제거됐습니다!'
+              : '✂️ 아이템 커터! 제거할 아이템이 없었습니다.';
+          _showNotif(msg, Colors.deepOrange);
         }
       case ItemType.reverse:
-        final shielded = ref.read(gameProvider)?.isShielded ?? false;
-        if (shielded) {
-          ref.read(gameProvider.notifier).consumeShield();
-          if (mounted) _showNotif('🛡️ 방어막이 리버스를 막았습니다!', Colors.green);
+        if (ref.read(gameProvider)?.isShielded ?? false) {
+          notifier.consumeShield();
+          _showNotif('🛡️ 방어막이 리버스를 막았습니다!', Colors.green);
         } else {
-          ref.read(gameProvider.notifier).applyReverse();
-          if (mounted) _showNotif('💥 리버스! 맞은 칸 하나가 지워졌습니다!', Colors.red);
+          notifier.applyReverse();
+          _showNotif('💥 리버스! 맞은 칸 하나가 지워졌습니다!', Colors.red);
         }
       case ItemType.hint:
       case ItemType.shield:
@@ -295,14 +341,25 @@ class _MultiplayerGameScreenState
         if (mounted) _showNotif('❓ → 🛡️ 럭키! 방어막 발동!', Colors.green);
 
       case 'freeze_self':
-        ref.read(gameProvider.notifier).applyFreeze(3);
-        _startFreezeCountdown();
-        if (mounted) _showNotif('❓ → ❄️ 불운! 자신이 3초 프리즈!', Colors.indigo);
+        // 미스터리 자폭 효과도 실드가 켜져 있으면 막힌다.
+        if (ref.read(gameProvider)?.isShielded ?? false) {
+          ref.read(gameProvider.notifier).consumeShield();
+          if (mounted) _showNotif('❓ → 🛡️ 실드가 프리즈를 막았습니다!', Colors.green);
+        } else {
+          ref.read(gameProvider.notifier).applyFreeze(3);
+          _startFreezeCountdown();
+          if (mounted) _showNotif('❓ → ❄️ 불운! 자신이 3초 프리즈!', Colors.indigo);
+        }
 
       case 'blind_self':
-        ref.read(gameProvider.notifier).applyBlind(5);
-        _startBlindCountdown();
-        if (mounted) _showNotif('❓ → 🌫️ 불운! 자신에게 블라인드!', Colors.deepPurple);
+        if (ref.read(gameProvider)?.isShielded ?? false) {
+          ref.read(gameProvider.notifier).consumeShield();
+          if (mounted) _showNotif('❓ → 🛡️ 실드가 블라인드를 막았습니다!', Colors.green);
+        } else {
+          ref.read(gameProvider.notifier).applyBlind(5);
+          _startBlindCountdown();
+          if (mounted) _showNotif('❓ → 🌫️ 불운! 자신에게 블라인드!', Colors.deepPurple);
+        }
 
       case 'freeze_opp':
       case 'blind_opp':
@@ -322,8 +379,14 @@ class _MultiplayerGameScreenState
         if (gameId == null || myId == null) return;
 
         if (outcome == 'hint_opp') {
-          ref.read(gameProvider.notifier).applyReverse();
-          if (mounted) _showNotif('❓ → 💥 불운! 자신의 칸이 지워졌어요...', Colors.red);
+          // 자폭(리버스)도 실드가 켜져 있으면 막힌다.
+          if (ref.read(gameProvider)?.isShielded ?? false) {
+            ref.read(gameProvider.notifier).consumeShield();
+            if (mounted) _showNotif('❓ → 🛡️ 실드가 리버스를 막았습니다!', Colors.green);
+          } else {
+            ref.read(gameProvider.notifier).applyReverse();
+            if (mounted) _showNotif('❓ → 💥 불운! 자신의 칸이 지워졌어요...', Colors.red);
+          }
           return;
         }
 
@@ -348,6 +411,7 @@ class _MultiplayerGameScreenState
             itemType: eventType,
             targetPlayerId: targetId,
             duration: eventDuration,
+            immediate: true, // 미스터리는 즉시발동 (경고/딜레이 없음)
           );
           if (mounted) {
             _showNotif(msg, Colors.orange);
@@ -429,6 +493,19 @@ class _MultiplayerGameScreenState
         return;
       }
       ref.read(gameProvider.notifier).freezeTick();
+    });
+  }
+
+  void _startShieldCountdown() {
+    _shieldTimer?.cancel();
+    _shieldTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final game = ref.read(gameProvider);
+      if (game == null || !game.isShielded) {
+        _shieldTimer?.cancel();
+        return;
+      }
+      ref.read(gameProvider.notifier).shieldTick();
     });
   }
 
@@ -594,6 +671,9 @@ class _MultiplayerGameScreenState
       if (next.isFrozen && (prev == null || !prev.isFrozen)) {
         _startFreezeCountdown();
       }
+      if (next.isShielded && (prev == null || !prev.isShielded)) {
+        _startShieldCountdown();
+      }
     });
 
     ref.listen(firstClearProvider, (prev, next) {
@@ -714,6 +794,29 @@ class _MultiplayerGameScreenState
                       ),
                     ),
 
+                  // 방어막 배너
+                  if (game.isShielded)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      color: Colors.green.shade50,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text('🛡️', style: TextStyle(fontSize: 14)),
+                          const Gap(6),
+                          Text(
+                            '방어막 활성 — ${game.shieldRemaining}초 (공격 1회 방어)',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Colors.green.shade800,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
                   const Gap(4),
 
                   // 아이템 슬롯
@@ -785,6 +888,8 @@ class _MultiplayerGameScreenState
                                       isCleared: o.rank != null ||
                                           (o.isMe && game.isCompleted),
                                       isTargetable: canTarget,
+                                      incomingItemEmoji:
+                                          _incomingAttacks[o.playerId],
                                     ),
                                   ),
                                 ),
@@ -800,13 +905,16 @@ class _MultiplayerGameScreenState
 
                   const Gap(4),
 
-                  // 스도쿠 그리드
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: _buildGrid(game),
+                  // 스도쿠 그리드 — 남은 세로 공간에 맞춰 정사각형으로
+                  // 축소되도록 Expanded+Center로 감싸 오버플로를 방지한다.
+                  Expanded(
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: _buildGrid(game),
+                      ),
+                    ),
                   ),
-
-                  const Spacer(),
 
                   if (_notifText != null)
                     Container(
@@ -1044,12 +1152,16 @@ class _PlayerGauge extends StatelessWidget {
   final bool isCleared;
   final bool isTargetable;
 
+  /// non-null이면 이 플레이어가 나에게 공격을 발사 중 — 게이지에 깜빡이는 경고 배지.
+  final String? incomingItemEmoji;
+
   const _PlayerGauge({
     required this.nickname,
     required this.progress,
     required this.isMe,
     required this.isCleared,
     this.isTargetable = false,
+    this.incomingItemEmoji,
   });
 
   @override
@@ -1122,7 +1234,64 @@ class _PlayerGauge extends StatelessWidget {
                   ),
                 ),
               ),
+            // 공격 경고: 이 플레이어가 나에게 공격을 발사 중 (깜빡임)
+            if (incomingItemEmoji != null)
+              Align(
+                alignment: Alignment.topRight,
+                child: Padding(
+                  padding: const EdgeInsets.all(2),
+                  child: _BlinkingBadge(emoji: incomingItemEmoji!),
+                ),
+              ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 공격 발사 중인 게이지에 표시되는 깜빡이는 아이템 배지(경고 신호).
+class _BlinkingBadge extends StatefulWidget {
+  final String emoji;
+  const _BlinkingBadge({required this.emoji});
+
+  @override
+  State<_BlinkingBadge> createState() => _BlinkingBadgeState();
+}
+
+class _BlinkingBadgeState extends State<_BlinkingBadge>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 450),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween<double>(begin: 0.25, end: 1.0).animate(_ctrl),
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          color: Colors.red.shade500,
+          borderRadius: BorderRadius.circular(6),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.red.withValues(alpha: 0.5),
+              blurRadius: 4,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+        child: Text(
+          widget.emoji,
+          style: const TextStyle(fontSize: 13, decoration: TextDecoration.none),
         ),
       ),
     );

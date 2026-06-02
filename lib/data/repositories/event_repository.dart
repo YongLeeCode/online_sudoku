@@ -15,6 +15,7 @@ class EventRepository {
     required ItemType itemType,
     required String targetPlayerId,
     int duration = 5,
+    bool immediate = false,
   }) async {
     await _client.from(SupabaseConstants.gameEventsTable).insert({
       'game_id': gameId,
@@ -24,6 +25,8 @@ class EventRepository {
         'item_type': itemType.dbKey,
         'target_player_id': targetPlayerId,
         'duration': duration,
+        // true면 수신측이 깜빡임 경고/1초 딜레이 없이 즉시 처리 (미스터리 발동용)
+        'immediate': immediate,
       },
     });
   }

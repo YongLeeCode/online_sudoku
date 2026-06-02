@@ -23,9 +23,16 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   Timer? _blindTimer;
   Duration _elapsed = Duration.zero;
 
+  // dispose 시점엔 `ref`가 이미 해제돼 사용할 수 없으므로, 정리에 필요한
+  // notifier 참조를 initState에서 미리 잡아둔다.
+  late final GameNotifier _gameNotifier;
+  late final StateController<bool> _memoModeNotifier;
+
   @override
   void initState() {
     super.initState();
+    _gameNotifier = ref.read(gameProvider.notifier);
+    _memoModeNotifier = ref.read(memoModeProvider.notifier);
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       final game = ref.read(gameProvider);
@@ -55,8 +62,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     _timer?.cancel();
     _penaltyTimer?.cancel();
     _blindTimer?.cancel();
-    ref.read(memoModeProvider.notifier).state = false;
-    ref.read(gameProvider.notifier).onItemCollected = null;
+    _memoModeNotifier.state = false;
+    _gameNotifier.onItemCollected = null;
     super.dispose();
   }
 
@@ -203,49 +210,58 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       body: SafeArea(
         child: Stack(
           children: [
-            Column(
-              children: [
-                // 진행률 바
-                LinearProgressIndicator(
-                  value: game.progress,
-                  minHeight: 4,
-                  backgroundColor: colorScheme.surfaceContainerHighest,
-                  valueColor: AlwaysStoppedAnimation(colorScheme.primary),
-                ),
-                const Gap(8),
+            // 넓은 화면(태블릿/웹)에서 과도하게 늘어나지 않도록 폭 제한
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 500),
+                child: Column(
+                  children: [
+                    // 진행률 바
+                    LinearProgressIndicator(
+                      value: game.progress,
+                      minHeight: 4,
+                      backgroundColor: colorScheme.surfaceContainerHighest,
+                      valueColor: AlwaysStoppedAnimation(colorScheme.primary),
+                    ),
+                    const Gap(8),
 
-                // 아이템 슬롯
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(4, (i) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: ItemSlot(
-                          item: game.myItems[i],
-                          onTap: () => _onItemTap(i),
+                    // 아이템 슬롯
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(4, (i) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: ItemSlot(
+                              item: game.myItems[i],
+                              onTap: () => _onItemTap(i),
+                            ),
+                          );
+                        }),
+                      ),
+                    ),
+
+                    const Gap(8),
+
+                    // 스도쿠 그리드 — 남은 세로 공간에 맞춰 정사각형으로
+                    // 축소되도록 Expanded+Center로 감싸 오버플로를 방지한다.
+                    Expanded(
+                      child: Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: _buildGrid(game),
                         ),
-                      );
-                    }),
-                  ),
+                      ),
+                    ),
+
+                    // 숫자 키패드
+                    const NumberPad(),
+
+                    const Gap(16),
+                  ],
                 ),
-
-                const Gap(8),
-
-                // 스도쿠 그리드 (블라인드 효과 적용)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: _buildGrid(game),
-                ),
-
-                const Spacer(),
-
-                // 숫자 키패드
-                const NumberPad(),
-
-                const Gap(16),
-              ],
+              ),
             ),
 
             // 패널티 오버레이

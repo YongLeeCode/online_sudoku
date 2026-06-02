@@ -1,10 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 
 import '../../core/constants/app_constants.dart';
-import '../../core/constants/difficulty.dart';
+import '../../data/models/item_model.dart';
 import '../../domain/providers/game_provider.dart';
 import '../../domain/providers/multiplayer_provider.dart';
 import '../../domain/providers/room_provider.dart';
@@ -22,6 +24,7 @@ class LobbyScreen extends ConsumerStatefulWidget {
 class _LobbyScreenState extends ConsumerState<LobbyScreen> {
   bool _navigatingToGame = false;
   bool _hostLeft = false;
+  bool _leaving = false;
 
   void _navigateToGame() async {
     if (_navigatingToGame) return;
@@ -56,12 +59,19 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
     ref.read(overtimeRemainingProvider.notifier).state = AppConstants.overtimeSeconds;
     ref.read(selectedCellProvider.notifier).state = null;
 
+    // 방장이 로비에서 선택한 아이템만 풀에 포함 (빈 리스트면 아이템 없음)
+    final itemPool = settings.allowedItems
+        .map(ItemTypeX.fromDbKey)
+        .whereType<ItemType>()
+        .toList();
+
     // 동일 seed, 최신 설정으로 게임 시작
     ref.read(gameProvider.notifier).startGameWithSeed(
           seed,
-          settings?.difficulty ?? Difficulty.normal,
-          penaltySeconds: settings?.penaltySeconds,
-          maxItemCount: settings?.maxItemCount,
+          settings.difficulty,
+          penaltySeconds: settings.penaltySeconds,
+          maxItemCount: settings.maxItemCount,
+          itemPool: itemPool,
         );
 
     Navigator.of(context).pushReplacement(
@@ -105,9 +115,9 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
 
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (didPop, _) async {
+      onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        await _onLeave(context, ref, player.id);
+        _onLeave(context, ref, player.id);
       },
       child: Scaffold(
         appBar: AppBar(
@@ -248,20 +258,36 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
     );
   }
 
-  Future<void> _onLeave(BuildContext context, WidgetRef ref, String playerId) async {
+  void _onLeave(BuildContext context, WidgetRef ref, String playerId) {
+    // 뒤로가기(앱바 버튼/시스템 제스처)가 두 경로로 들어올 수 있어 1회만 처리한다.
+    if (_leaving) return;
+    _leaving = true;
+
     final player = ref.read(currentPlayerProvider);
     final room = ref.read(currentRoomProvider);
+    final lobbyActions = ref.read(lobbyActionsProvider);
+    final roomRepo = ref.read(roomRepositoryProvider);
+    final isHost = player?.isHost == true;
+    final navigator = Navigator.of(context);
 
-    await ref.read(lobbyActionsProvider).leaveRoom(playerId);
+    // DB 정리는 best-effort 백그라운드로 보낸다. 네트워크 지연·실패가
+    // 화면 전환을 막아 "뒤로가기가 안 먹는" 문제를 일으키지 않도록 한다.
+    unawaited(() async {
+      try {
+        await lobbyActions.leaveRoom(playerId);
+        if (isHost && room != null) {
+          await roomRepo.closeRoom(room.id);
+        }
+      } catch (_) {
+        // 이미 삭제됐거나 오프라인이어도 화면은 정상적으로 빠져나간다.
+      }
+    }());
 
-    if (player?.isHost == true && room != null) {
-      await ref.read(roomRepositoryProvider).closeRoom(room.id);
-    }
-
+    // 로컬 상태 초기화 후 즉시 메인으로 복귀.
     ref.read(currentRoomProvider.notifier).state = null;
     ref.read(currentPlayerProvider.notifier).state = null;
     ref.read(roomSettingsProvider.notifier).state = null;
-    if (context.mounted) Navigator.of(context).pop();
+    navigator.pop();
   }
 
   Future<void> _onHostLeft() async {

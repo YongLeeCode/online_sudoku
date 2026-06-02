@@ -109,20 +109,45 @@
 
 ---
 
-## 📖 Phase 4 — 튜토리얼 모드 🟡 (싱글 모드 내, 단계별)
+## 📖 Phase 4 — 튜토리얼 모드 🟡 (싱글 모드 내, 단계별) (완료)
 
-> 싱글 모드 안에서 **단계별 튜토리얼**로 처음 하는 사람도 규칙·조작을 익히도록.
+> 싱글 모드 안에서 **단계별 튜토리얼**로 처음 하는 사람도 규칙·조작을 익히도록. **완료 (2026-06-02)**
 
-- [ ] 튜토리얼 진입점: 홈 Single 탭에 "튜토리얼" 버튼 (Phase 2와 연결)
-- [ ] 단계(step) 시나리오 정의 → **결정 필요**(아래 Open Questions)
-  - 예시 단계: ① 셀 선택·숫자 입력 → ② 행/열/박스 규칙 → ③ 메모(연필) 사용 → ④ 오답 패널티 → ⑤ 아이템 칸·획득 → ⑥ (멀티 안내) 아이템으로 상대 방해/방어
-- [ ] 단계별 가이드 UI (코치마크/하이라이트 + 말풍선, "다음" 진행)
-- [ ] 스크립트형 미니 퍼즐(또는 고정 보드)로 각 동작을 직접 따라하게
-- [ ] 진행 중 잘못된 조작 차단/유도 (해당 단계 외 입력 제한)
-- [ ] 튜토리얼 완료 상태 저장 (최초 1회 자동 노출 여부 — SharedPreferences 또는 프로필)
-- [ ] 건너뛰기/다시보기 지원
+- [x] 튜토리얼 진입점: 홈 Single 탭 "튜토리얼" 타일 → `TutorialScreen` push (완료 시 배지 `완료`/미완료 `추천`)
+- [x] 단계(step) 시나리오 = **총 12단계** (`tutorial_screen.dart`의 `_Step` 리스트)
+  - ① 셀 선택·숫자 입력 → ② 행/열/박스 규칙 → ③ 메모(연필) → ④ 오답 패널티 → ⑤ 아이템 칸·획득 → ⑥ **아이템 7종을 각 1스테이지씩**(hint/blind/freeze/itemCut/shield/reverse/mystery)
+- [x] 단계별 가이드 UI: 하단 안내 카드(아이콘+제목+설명) + 진행률(앱바 `n/12` + LinearProgress) + 「다음」/「건너뛰기」
+- [x] 스크립트형 보드: `GameNotifier.loadScriptedBoard`로 고정 정답판에 단계별 빈칸/아이템/프리필 주입 (실제 `SudokuGrid`/`NumberPad`/패널티·아이템 로직 그대로 재사용)
+- [x] 잘못된 조작 차단/유도: 채울 칸 외에는 모두 **고정 칸** → 입력이 자연스럽게 제한. 목표 미달 시 「다음」 비활성. 패널티 단계에서 정답을 맞히면 다시 비워 재시도 유도
+- [x] 아이템 사용: 상대 타겟 아이템(blind/freeze/itemCut/reverse)도 **내 보드에서 효과를 직접 데모**(「효과 보기」 버튼). hint/shield/mystery는 실제 동작 그대로
+- [x] 튜토리얼 완료 상태 저장: **기기 로컬 `SharedPreferences`** (`tutorial_completed`) — `tutorialCompletedProvider`. 익명 플레이라 서버 동기화 불필요, Phase 5 프로필 도입 시 미러링 가능
+- [x] 건너뛰기 지원(앱바). 다시보기 = 홈 타일로 언제든 재진입 가능
+- [x] **반응형/하단바**: 게임 화면들과 동일하게 `Expanded+Center` 그리드 + `maxWidth:500`. 전체화면 라우트 push라 플레이 중 하단 탭바 미노출
 
-**의존성**: 홈 Single 탭(Phase 2). 게임 엔진 재사용하되 "가이드/제한 모드" 플래그 추가 검토. 아이템 설명은 Phase 3 컴포넌트 재사용 가능. 프로필 연동(완료 저장)은 선택.
+**의존성**: 홈 Single 탭(Phase 2). 게임 엔진(`game_provider`) 재사용 — 신규 `loadScriptedBoard`/`clear` 추가. 아이템 설명 텍스트는 `ItemTypeX` 재사용.
+
+> ⚠️ **이번 작업에서 함께 처리한 버그**: 싱글/멀티 게임 화면이 넓고 낮은 화면(태블릿/가로)에서 `AspectRatio` 그리드+`Spacer` 구조로 세로 오버플로(깨짐)가 났음. → 그리드를 `Expanded(child: Center(...))`로 감싸 남은 공간에 맞는 정사각형으로 축소되게 하고 `maxWidth:500`으로 폭을 제한해 해결(`game_screen.dart`, `multiplayer_game_screen.dart`).
+
+---
+
+## ⚔️ Phase 4-2 — 아이템 개편 (공격 경고/딜레이 · 실드 3초 · 로비 아이템 선택) 🟡 (완료)
+
+> 멀티 아이템 배틀의 균형/UX 개편. **완료 (2026-06-02)**
+> 문제: ① 공격이 즉발이라 "갑자기 당하는" 느낌 + 방어 여지 없음 ② 로비 `allowed_items` 설정이 死문(게임 풀에 미반영, 선택 UI 없음).
+
+### 공격 경고 + 3초 딜레이 + 실드 3초
+- [x] **공격 경고 신호**: 공격(blind/freeze/itemCut/reverse) 수신 시 **공격자 게이지에서 아이템 이모지가 3초간 깜빡임** → 그 뒤 내 게이지로 날아오는 비행 애니메이션. ("갑자기 당하는" 문제 해결)
+  - `_PlayerGauge`에 `incomingItemEmoji` 추가 + `_BlinkingBadge`(반복 `FadeTransition`). 수신측 상태 `Map<String,String> _incomingAttacks`(공격자 id→이모지).
+- [x] **3초 딜레이(반응 창)**: 수신측 `_telegraphAttack`가 3초 뒤 `_landAttack` 호출. 착탄 시점에 실드 활성이면 차단(반응 창 모델 — 깜빡임 3초 안에 실드를 켜도 막힘. 실드 지속도 3초라 반응 여유 일치).
+- [x] **실드 3초 지속**: `GameState.shieldRemaining` 도입, `applyShield()`=3초, `shieldTick()` 1초 감소·0이면 해제. 멀티 화면에 `_startShieldCountdown` + 방어막 배너(남은 초).
+- [x] **미스터리 예외**: 나/상대 모두 발동 가능하므로 **즉시 발동**(경고/딜레이 없음) — `sendItemEvent(immediate:true)`(payload 플래그). 단 대상 실드가 켜져 있으면 차단(자폭 freeze/blind/reverse 자기효과도 실드로 막힘).
+
+### 로비 아이템 선택 (방장)
+- [x] `SettingsPanel`에 "사용 아이템" 섹션 — 7종 `FilterChip`(이모지+이름, 체크박스형) 방장 토글, 참여자는 읽기전용.
+- [x] `allowed_items` → 실제 아이템 풀 연결: `lobby_screen._navigateToGame`가 `startGameWithSeed(itemPool: allowedItems.map(fromDbKey)...)` 전달. 전부 끄면 "아이템 없음" 모드.
+- [x] `RoomSettingsModel.copyWith` 추가(설정 패널의 반복 전체 재생성 코드 정리).
+
+**의존성/마이그레이션**: 없음. `room_settings.allowed_items` 컬럼·직렬화 기존 존재, 미스터리 즉시발동 플래그는 `game_events.payload` JSONB 안에 추가(스키마 불변). 단위 테스트 `test/item_battle_test.dart`(실드 3초·풀 매핑) 추가.
 
 ---
 
